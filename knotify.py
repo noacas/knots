@@ -24,7 +24,7 @@ def knotify(braid: torch.Tensor) -> torch.Tensor:
                     to_add = (-1) ** i * (strand - 1)
                     break
             if to_add != 0:
-                term = torch.tensor([to_add], dtype=torch.float16)
+                term = torch.tensor([to_add], dtype=torch.float)
                 braid = torch.cat((braid, term))
                 break
         components = get_components(braid)

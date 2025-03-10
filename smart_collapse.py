@@ -11,14 +11,14 @@ def remove_consecutive_inverses(braid: torch.Tensor) -> torch.Tensor:
     if not len(braid):
         return braid
 
-    result = torch.empty(0, dtype=torch.float16)
+    result = torch.empty(0, dtype=torch.float)
     i = 0
     while i < len(braid):
         # If we have a next element, and it's the inverse of current
         if i + 1 < len(braid) and braid[i] == -braid[i + 1]:
             i += 2  # Skip both elements
         else:
-            term = torch.tensor([braid[i]], dtype=torch.float16)
+            term = torch.tensor([braid[i]], dtype=torch.float)
             result = torch.cat((result, term), dim=0)
             i += 1
     return result
@@ -68,8 +68,8 @@ def remove_free_strands(braid: torch.Tensor) -> torch.Tensor:
     for j, crossing in enumerate(braid):
         i = int(abs(crossing.item()))
         new_i = mapping[i]
-        new_braid[j] = torch.tensor([new_i], dtype=torch.float16) if crossing > 0 \
-                else torch.tensor([-new_i], dtype=torch.float16)
+        new_braid[j] = torch.tensor([new_i], dtype=torch.float) if crossing > 0 \
+                else torch.tensor([-new_i], dtype=torch.float)
 
     return new_braid
 
@@ -147,7 +147,7 @@ def smart_collapse(braid: torch.Tensor) -> torch.Tensor:
     if not len(braid):
         return braid # Empty braid
 
-    braid_prime = torch.empty(0, dtype=torch.float16)  # Empty braid word
+    braid_prime = torch.empty(0, dtype=torch.float)  # Empty braid word
 
     while braid_prime.shape != braid.shape or not torch.equal(braid_prime, braid):
         braid_prime = braid.clone()

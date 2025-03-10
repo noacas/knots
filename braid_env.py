@@ -17,8 +17,8 @@ class BraidEnvironment:
         self.n_letters_max = n_letters_max  # Maximum length of a braid
         self.punishment_for_illegal_action = -4 * self.n_braids_max
 
-        self.current_braid = torch.tensor([], dtype=torch.float16)
-        self.target_braid = torch.tensor([], dtype=torch.float16)
+        self.current_braid = torch.tensor([], dtype=torch.float)
+        self.target_braid = torch.tensor([], dtype=torch.float)
         self.steps_taken = 0
 
         self.normalize = normalize
@@ -62,7 +62,7 @@ class BraidEnvironment:
         def trim_zeros_tensor(tensor):
             nonzero_indices = torch.nonzero(tensor, as_tuple=True)[0]
             if nonzero_indices.numel() == 0:
-                return torch.tensor([], dtype=tensor.dtype, device=tensor.device)  # Return empty tensor if all zeros
+                return torch.tensor([], dtype=tensor.dtype)  # Return empty tensor if all zeros # device=tensor.device?
             return tensor[nonzero_indices[0]: nonzero_indices[-1] + 1]
 
         new_env.current_braid = trim_zeros_tensor(env_state[:self.n_letters_max])

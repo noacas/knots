@@ -34,12 +34,12 @@ def random_knot(n_letters: int, n_strands: int, n_moves: int) -> torch.Tensor:
     Returns:
         A braid representation of a random knot
     """
-    braid = torch.empty(0, dtype=torch.float16) # Empty braid word
+    braid = torch.empty(0, dtype=torch.float) # Empty braid word
 
     while len(braid) != n_letters:
         # Reset if braid becomes too long
         if len(braid) > n_letters:
-            braid = torch.empty(0, dtype=torch.float16)
+            braid = torch.empty(0, dtype=torch.float)
 
         # Build braid to desired length
         while len(braid) < n_letters:
@@ -48,7 +48,7 @@ def random_knot(n_letters: int, n_strands: int, n_moves: int) -> torch.Tensor:
             # Random strand selection
             j = random.randint(1, n_strands-1)
             # Add crossing with appropriate sign
-            new_element = torch.tensor([sign * j], dtype=torch.float16)
+            new_element = torch.tensor([sign * j], dtype=torch.float)
             braid = torch.cat((braid, new_element))
 
         braid = knotify(braid)

@@ -56,8 +56,8 @@ class BraidAttentionPolicy(nn.Module):
         # Split input into current and target braids
         batch_size = x.size(0)
         seq_len = x.size(1) // 2
-        current_braid = x[:, :seq_len].unsqueeze(-1)
-        target_braid = x[:, seq_len:].unsqueeze(-1)
+        current_braid = x[:, :seq_len].unsqueeze(-1).to(device)
+        target_braid = x[:, seq_len:].unsqueeze(-1).to(device)
 
         # Embed current and target braids
         current = self.current_embedding(current_braid)
@@ -212,7 +212,7 @@ class TRPOAgent:
         if count == 0:
             return 1.0  # Maximum bonus for unseen states
         else:
-            return 1.0 / torch.sqrt(torch.tensor(count, dtype=torch.float32, device=device))
+            return 1.0 / torch.sqrt(torch.tensor(count, dtype=torch.float, device=device))
 
     def collect_trajectory(self):
         states = []
@@ -262,11 +262,11 @@ class TRPOAgent:
             timesteps += 1
 
         # Convert to tensors
-        states_tensor = torch.stack(states)
-        actions_tensor = torch.tensor(actions, dtype=torch.float16, device=device)
-        rewards_tensor = torch.tensor(rewards, dtype=torch.float32, device=device)
-        values_tensor = torch.tensor(values, dtype=torch.float32, device=device)
-        log_probs_tensor = torch.tensor(log_probs, dtype=torch.float32, device=device)
+        states_tensor = torch.stack(states).to(device)
+        actions_tensor = torch.tensor(actions, dtype=torch.long, device=device)
+        rewards_tensor = torch.tensor(rewards, dtype=torch.float, device=device)
+        values_tensor = torch.tensor(values, dtype=torch.float, device=device)
+        log_probs_tensor = torch.tensor(log_probs, dtype=torch.float, device=device)
         dones_tensor = torch.tensor(dones, dtype=torch.bool, device=device)
 
         return {
@@ -349,6 +349,7 @@ class TRPOAgent:
                 # Choose random action
                 action = torch.randint(0, self.env.get_action_space(), (1,), device=device).item()
                 next_state, reward, done, _ = self.env.step(action)
+                next_state = next_state.to(device)
 
                 vine_states.append(next_state)
                 vine_actions.append(action)
@@ -359,8 +360,8 @@ class TRPOAgent:
 
             # Convert lists to tensors
             vine_states_tensor = torch.stack(vine_states)
-            vine_actions_tensor = torch.tensor(vine_actions, dtype=torch.float16, device=device)
-            vine_rewards_tensor = torch.tensor(vine_rewards, dtype=torch.float32, device=device)
+            vine_actions_tensor = torch.tensor(vine_actions, dtype=torch.float, device=device)
+            vine_rewards_tensor = torch.tensor(vine_rewards, dtype=torch.float, device=device)
 
             vine_trajectories.append({
                 'states': vine_states_tensor,
@@ -372,8 +373,8 @@ class TRPOAgent:
 
     def update_vine_value(self, vine_trajectories):
         # Use VINE rollouts to update value function
-        all_states = torch.empty(dtype=torch.float16, device=device)
-        all_returns = torch.empty(dtype=torch.long, device=device)
+        all_states = []
+        all_returns = []
 
         for traj in vine_trajectories:
             states = traj['states']
@@ -388,11 +389,14 @@ class TRPOAgent:
 
             # Add state-return pairs (excluding the last state)
             if len(states) > 1:
-                all_states = torch.cat((all_states,states[:-1]))
-                all_returns = torch.cat((all_returns,returns[:-1]))
+                all_states.append(states[:-1])
+                all_returns.append(returns[:-1])
 
         if not all_states:  # No data to train on
             return
+
+        all_states = torch.cat(all_states, dim=0).to(device)
+        all_returns = torch.cat(all_returns, dim=0).to(device)
 
         # Update value function
         for _ in range(self.vine_epochs):
@@ -457,7 +461,7 @@ class TRPOAgent:
         """Compute the policy gradient"""
         # Get action probabilities
         action_probs = self.policy(states)
-        log_probs = torch.log(action_probs.gather(1, actions.unsqueeze(1))).squeeze()
+        log_probs = torch.log(action_probs.gather(1, actions.long().unsqueeze(1))).squeeze()
 
         # Compute surrogate loss
         policy_loss = -(log_probs * advantages).mean()
