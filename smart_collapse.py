@@ -21,7 +21,7 @@ def remove_consecutive_inverses(braid: torch.Tensor) -> torch.Tensor:
             term = torch.tensor([braid[i]], dtype=torch.float)
             result = torch.cat((result, term), dim=0)
             i += 1
-    return result
+    return result.to(device=braid.device)
 
 
 def remove_free_strands(braid: torch.Tensor) -> torch.Tensor:
@@ -71,7 +71,7 @@ def remove_free_strands(braid: torch.Tensor) -> torch.Tensor:
         new_braid[j] = torch.tensor([new_i], dtype=torch.float) if crossing > 0 \
                 else torch.tensor([-new_i], dtype=torch.float)
 
-    return new_braid
+    return new_braid.to(device=braid.device)
 
 
 def destabilize(braid: torch.Tensor) -> torch.Tensor:
@@ -147,7 +147,7 @@ def smart_collapse(braid: torch.Tensor) -> torch.Tensor:
     if not len(braid):
         return braid # Empty braid
 
-    braid_prime = torch.empty(0, dtype=torch.float)  # Empty braid word
+    braid_prime = torch.empty(0, dtype=torch.float, device=braid.device)  # Empty braid word
 
     while braid_prime.shape != braid.shape or not torch.equal(braid_prime, braid):
         braid_prime = braid.clone()

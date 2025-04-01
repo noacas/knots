@@ -8,7 +8,6 @@ from torch.nn import MultiheadAttention
 from braid_env import BraidEnvironment
 
 
-# Check if MPS is available
 if torch.backends.mps.is_available():
     device = torch.device("mps")
     print("Using MPS device")
@@ -31,26 +30,44 @@ class BraidAttentionPolicy(nn.Module):
         # Positional encoding
         self.position_encoding = nn.Parameter(torch.randn(1, 100, d_model))  # Max length 100
 
-        # Self-attention for current braid
-        self.self_attention = MultiheadAttention(d_model, num_heads)
+        # Layer 1
+        self.self_attention1 = nn.MultiheadAttention(d_model, num_heads)
+        self.cross_attention1 = nn.MultiheadAttention(d_model, num_heads)
+        self.ff1_1 = nn.Linear(d_model, d_model * 4)
+        self.ff1_2 = nn.Linear(d_model * 4, d_model)
+        self.norm1_1 = nn.LayerNorm(d_model)
+        self.norm1_2 = nn.LayerNorm(d_model)
+        self.norm1_3 = nn.LayerNorm(d_model)
 
-        # Cross-attention between current and target braids
-        self.cross_attention = MultiheadAttention(d_model, num_heads)
+        # Layer 2
+        self.self_attention2 = nn.MultiheadAttention(d_model, num_heads)
+        self.cross_attention2 = nn.MultiheadAttention(d_model, num_heads)
+        self.ff2_1 = nn.Linear(d_model, d_model * 4)
+        self.ff2_2 = nn.Linear(d_model * 4, d_model)
+        self.norm2_1 = nn.LayerNorm(d_model)
+        self.norm2_2 = nn.LayerNorm(d_model)
+        self.norm2_3 = nn.LayerNorm(d_model)
 
-        # Feed-forward layers
-        self.ff1 = nn.Linear(d_model, d_model * 4)
-        self.ff2 = nn.Linear(d_model * 4, d_model)
+        # Layer 3
+        self.self_attention3 = nn.MultiheadAttention(d_model, num_heads)
+        self.cross_attention3 = nn.MultiheadAttention(d_model, num_heads)
+        self.ff3_1 = nn.Linear(d_model, d_model * 4)
+        self.ff3_2 = nn.Linear(d_model * 4, d_model)
+        self.norm3_1 = nn.LayerNorm(d_model)
+        self.norm3_2 = nn.LayerNorm(d_model)
+        self.norm3_3 = nn.LayerNorm(d_model)
 
-        # Layer normalization
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.norm3 = nn.LayerNorm(d_model)
+        # Final refinement layer
+        self.final_self_attention = nn.MultiheadAttention(d_model, num_heads)
+        self.final_norm = nn.LayerNorm(d_model)
 
-        # Output layer
-        self.output = nn.Linear(d_model, output_dim)
+        # Output layers
+        self.output_hidden = nn.Linear(d_model, d_model * 2)
+        self.output = nn.Linear(d_model * 2, output_dim)
 
         # Dropout
         self.dropout = nn.Dropout(0.1)
+        self.output_dropout = nn.Dropout(0.1 * 1.5)  # Slightly higher dropout for final layer
 
     def forward(self, x):
         # Split input into current and target braids
@@ -67,21 +84,58 @@ class BraidAttentionPolicy(nn.Module):
         current = current + self.position_encoding[:, :seq_len, :]
         target = target + self.position_encoding[:, :seq_len, :]
 
+        # ----- Multiple layers of attention -----
+
+        # Layer 1
         # Self-attention on current braid
-        self_attn_output, _ = self.self_attention(current, current, current)
-        current = self.norm1(current + self.dropout(self_attn_output))
+        self_attn_output1, _ = self.self_attention1(current, current, current)
+        current = self.norm1_1(current + self.dropout(self_attn_output1))
 
         # Cross-attention between current and target braids
-        cross_attn_output, _ = self.cross_attention(current, target, target)
-        current = self.norm2(current + self.dropout(cross_attn_output))
+        cross_attn_output1, _ = self.cross_attention1(current, target, target)
+        current = self.norm1_2(current + self.dropout(cross_attn_output1))
 
-        # Feed-forward
-        ff_output = self.ff2(F.relu(self.ff1(current)))
-        current = self.norm3(current + self.dropout(ff_output))
+        # Feed-forward for first layer
+        ff_output1 = self.ff1_2(F.relu(self.ff1_1(current)))
+        current = self.norm1_3(current + self.dropout(ff_output1))
+
+        # Layer 2
+        # Self-attention on current braid (second layer)
+        self_attn_output2, _ = self.self_attention2(current, current, current)
+        current = self.norm2_1(current + self.dropout(self_attn_output2))
+
+        # Cross-attention between current and target braids (second layer)
+        cross_attn_output2, _ = self.cross_attention2(current, target, target)
+        current = self.norm2_2(current + self.dropout(cross_attn_output2))
+
+        # Feed-forward for second layer
+        ff_output2 = self.ff2_2(F.relu(self.ff2_1(current)))
+        current = self.norm2_3(current + self.dropout(ff_output2))
+
+        # Layer 3
+        # Self-attention on current braid (third layer)
+        self_attn_output3, _ = self.self_attention3(current, current, current)
+        current = self.norm3_1(current + self.dropout(self_attn_output3))
+
+        # Cross-attention between current and target braids (third layer)
+        cross_attn_output3, _ = self.cross_attention3(current, target, target)
+        current = self.norm3_2(current + self.dropout(cross_attn_output3))
+
+        # Feed-forward for third layer
+        ff_output3 = self.ff3_2(F.relu(self.ff3_1(current)))
+        current = self.norm3_3(current + self.dropout(ff_output3))
+
+        # Additional layer of self-attention for final refinement
+        final_self_attn, _ = self.final_self_attention(current, current, current)
+        current = self.final_norm(current + self.dropout(final_self_attn))
 
         # Pool across sequence dimension and project to output dimension
         current = current.mean(dim=1)
-        output = self.output(current)
+
+        # Final projection with deeper networks
+        hidden = F.relu(self.output_hidden(current))
+        hidden = self.output_dropout(hidden)
+        output = self.output(hidden)
 
         return F.softmax(output, dim=-1)
 
@@ -93,33 +147,110 @@ class BraidAttentionValue(nn.Module):
 
         self.d_model = d_model
 
-        # Embedding layers for current and target braids
+        # Embedding layers
         self.current_embedding = nn.Linear(1, d_model)
         self.target_embedding = nn.Linear(1, d_model)
 
         # Positional encoding
         self.position_encoding = nn.Parameter(torch.randn(1, 100, d_model))  # Max length 100
 
-        # Self-attention for current braid
-        self.self_attention = MultiheadAttention(d_model, num_heads)
+        # Layer 1
+        self.self_attention1 = nn.MultiheadAttention(d_model, num_heads)
+        self.cross_attention1 = nn.MultiheadAttention(d_model, num_heads)
+        self.ff1_1 = nn.Linear(d_model, d_model * 4)
+        self.ff1_2 = nn.Linear(d_model * 4, d_model)
+        self.norm1_1 = nn.LayerNorm(d_model)
+        self.norm1_2 = nn.LayerNorm(d_model)
+        self.norm1_3 = nn.LayerNorm(d_model)
 
-        # Cross-attention between current and target braids
-        self.cross_attention = MultiheadAttention(d_model, num_heads)
+        # Layer 2
+        self.self_attention2 = nn.MultiheadAttention(d_model, num_heads)
+        self.cross_attention2 = nn.MultiheadAttention(d_model, num_heads)
+        self.ff2_1 = nn.Linear(d_model, d_model * 4)
+        self.ff2_2 = nn.Linear(d_model * 4, d_model)
+        self.norm2_1 = nn.LayerNorm(d_model)
+        self.norm2_2 = nn.LayerNorm(d_model)
+        self.norm2_3 = nn.LayerNorm(d_model)
 
-        # Feed-forward layers
-        self.ff1 = nn.Linear(d_model, d_model * 4)
-        self.ff2 = nn.Linear(d_model * 4, d_model)
+        # Layer 3
+        self.self_attention3 = nn.MultiheadAttention(d_model, num_heads)
+        self.cross_attention3 = nn.MultiheadAttention(d_model, num_heads)
+        self.ff3_1 = nn.Linear(d_model, d_model * 4)
+        self.ff3_2 = nn.Linear(d_model * 4, d_model)
+        self.norm3_1 = nn.LayerNorm(d_model)
+        self.norm3_2 = nn.LayerNorm(d_model)
+        self.norm3_3 = nn.LayerNorm(d_model)
 
-        # Layer normalization
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.norm3 = nn.LayerNorm(d_model)
+        # Final attention layer
+        self.final_attention = nn.MultiheadAttention(d_model, num_heads)
+        self.final_norm = nn.LayerNorm(d_model)
 
         # Output layer
         self.output = nn.Linear(d_model, 1)
 
         # Dropout
-        self.dropout = nn.Dropout(0.1)
+        self.dropout = nn.Dropout(0.15)
+
+        # # Embedding layers for current and target braids
+        # self.current_embedding = nn.Linear(1, d_model)
+        # self.target_embedding = nn.Linear(1, d_model)
+        #
+        # # Positional encoding
+        # self.position_encoding = nn.Parameter(torch.randn(1, 100, d_model))  # Max length 100
+        #
+        # # Self-attention for current braid
+        # self.self_attention = MultiheadAttention(d_model, num_heads)
+        #
+        # # Cross-attention between current and target braids
+        # self.cross_attention = MultiheadAttention(d_model, num_heads)
+        #
+        # # Feed-forward layers
+        # self.ff1 = nn.Linear(d_model, d_model * 4)
+        # self.ff2 = nn.Linear(d_model * 4, d_model)
+        #
+        # # Layer normalization
+        # self.norm1 = nn.LayerNorm(d_model)
+        # self.norm2 = nn.LayerNorm(d_model)
+        # self.norm3 = nn.LayerNorm(d_model)
+        #
+        # # Output layer
+        # self.output = nn.Linear(d_model, 1)
+        #
+        # # Dropout
+        # self.dropout = nn.Dropout(0.1)
+
+    # def forward(self, x):
+    #     # Split input into current and target braids
+    #     batch_size = x.size(0)
+    #     seq_len = x.size(1) // 2
+    #     current_braid = x[:, :seq_len].unsqueeze(-1)
+    #     target_braid = x[:, seq_len:].unsqueeze(-1)
+    #
+    #     # Embed current and target braids
+    #     current = self.current_embedding(current_braid)
+    #     target = self.target_embedding(target_braid)
+    #
+    #     # Add positional encoding
+    #     current = current + self.position_encoding[:, :seq_len, :]
+    #     target = target + self.position_encoding[:, :seq_len, :]
+    #
+    #     # Self-attention on current braid
+    #     self_attn_output, _ = self.self_attention(current, current, current)
+    #     current = self.norm1(current + self.dropout(self_attn_output))
+    #
+    #     # Cross-attention between current and target braids
+    #     cross_attn_output, _ = self.cross_attention(current, target, target)
+    #     current = self.norm2(current + self.dropout(cross_attn_output))
+    #
+    #     # Feed-forward
+    #     ff_output = self.ff2(F.relu(self.ff1(current)))
+    #     current = self.norm3(current + self.dropout(ff_output))
+    #
+    #     # Pool across sequence dimension and project to output dimension
+    #     current = current.mean(dim=1)
+    #     output = self.output(current)
+    #
+    #     return output
 
     def forward(self, x):
         # Split input into current and target braids
@@ -136,17 +267,48 @@ class BraidAttentionValue(nn.Module):
         current = current + self.position_encoding[:, :seq_len, :]
         target = target + self.position_encoding[:, :seq_len, :]
 
+        # Layer 1
         # Self-attention on current braid
-        self_attn_output, _ = self.self_attention(current, current, current)
-        current = self.norm1(current + self.dropout(self_attn_output))
+        self_attn_output1, _ = self.self_attention1(current, current, current)
+        current = self.norm1_1(current + self.dropout(self_attn_output1))
 
         # Cross-attention between current and target braids
-        cross_attn_output, _ = self.cross_attention(current, target, target)
-        current = self.norm2(current + self.dropout(cross_attn_output))
+        cross_attn_output1, _ = self.cross_attention1(current, target, target)
+        current = self.norm1_2(current + self.dropout(cross_attn_output1))
 
-        # Feed-forward
-        ff_output = self.ff2(F.relu(self.ff1(current)))
-        current = self.norm3(current + self.dropout(ff_output))
+        # Feed-forward for first layer
+        ff_output1 = self.ff1_2(F.relu(self.ff1_1(current)))
+        current = self.norm1_3(current + self.dropout(ff_output1))
+
+        # Layer 2
+        # Self-attention on current braid
+        self_attn_output2, _ = self.self_attention2(current, current, current)
+        current = self.norm2_1(current + self.dropout(self_attn_output2))
+
+        # Cross-attention between current and target braids
+        cross_attn_output2, _ = self.cross_attention2(current, target, target)
+        current = self.norm2_2(current + self.dropout(cross_attn_output2))
+
+        # Feed-forward for second layer
+        ff_output2 = self.ff2_2(F.relu(self.ff2_1(current)))
+        current = self.norm2_3(current + self.dropout(ff_output2))
+
+        # Layer 3
+        # Self-attention on current braid
+        self_attn_output3, _ = self.self_attention3(current, current, current)
+        current = self.norm3_1(current + self.dropout(self_attn_output3))
+
+        # Cross-attention with target braid
+        cross_attn_output3, _ = self.cross_attention3(current, target, target)
+        current = self.norm3_2(current + self.dropout(cross_attn_output3))
+
+        # Feed-forward for third layer
+        ff_output3 = self.ff3_2(F.relu(self.ff3_1(current)))
+        current = self.norm3_3(current + self.dropout(ff_output3))
+
+        # Final attention layer
+        final_attn_output, _ = self.final_attention(current, current, current)
+        current = self.final_norm(current + self.dropout(final_attn_output))
 
         # Pool across sequence dimension and project to output dimension
         current = current.mean(dim=1)
@@ -159,7 +321,7 @@ class TRPOAgent:
     def __init__(self, env, policy_network, value_network, gamma=0.99, lam=0.95,
                  max_param_change=0.01, backtrack_iters=10, backtrack_coeff=0.8,
                  max_timesteps=1000, vine_bonus_coeff=0.01,
-                 vine_batch_size=64, vine_epochs=5):
+                 vine_batch_size=64, vine_epochs=10):
         self.env = env
         self.policy = policy_network.to(device)
         self.value = value_network.to(device)
@@ -228,7 +390,7 @@ class TRPOAgent:
         timesteps = 0
         found_transformations = False
 
-        while not done and timesteps < self.max_timesteps:
+        while not done:
             state_tensor = state.unsqueeze(0).to(device)
             # Get action probabilities from policy
             with torch.no_grad():
@@ -260,6 +422,14 @@ class TRPOAgent:
             state = next_state
             total_reward += reward
             timesteps += 1
+
+            if found_transformations:
+                print(f"success on {self.env.start_braid} to {self.env.target_braid}")
+                for i, move in enumerate(self.env.chosen_moves):
+                    braid = self.env.intermediate_braids[i]
+                    print(f"move: {move}, braid: {braid}")
+                print(f"total steps: {self.env.steps_taken}")
+                print("----------------------------------")
 
         # Convert to tensors
         states_tensor = torch.stack(states).to(device)
@@ -339,16 +509,16 @@ class TRPOAgent:
         for state in batch_states:
             # Start from this state and apply a random policy for a few steps
             current_state = state.clone() #.cpu().numpy()  # Convert to numpy for env
-            self.env.get_env_from_state(current_state)
+            env = self.env.get_env_from_state(current_state)
 
             vine_states = [current_state]
             vine_actions = []
             vine_rewards = []
 
-            for _ in range(5):  # Short rollout
+            for _ in range(10): #5?  # Short rollout
                 # Choose random action
-                action = torch.randint(0, self.env.get_action_space(), (1,), device=device).item()
-                next_state, reward, done, _ = self.env.step(action)
+                action = torch.randint(0, env.get_action_space(), (1,), device=device).item()
+                next_state, reward, done, _ = env.step(action)
                 next_state = next_state.to(device)
 
                 vine_states.append(next_state)
@@ -608,7 +778,7 @@ class TRPOAgent:
 # Main function to set up and run the training
 def main():
     # Set up environment
-    env = BraidEnvironment(n_braids_max=10, n_letters_max=20, max_steps=50)
+    env = BraidEnvironment(n_braids_max=10, n_letters_max=20, max_steps=30)
 
     # Get dimensions
     d_model = env.get_model_dim()  # Dimension of the model
@@ -626,16 +796,16 @@ def main():
         value_network=value_net,
         gamma=0.99,
         lam=0.95,
-        max_param_change=0.001,  # Maximum allowed parameter change magnitude
+        max_param_change=0.1,  # Maximum allowed parameter change magnitude
         backtrack_iters=10,
         backtrack_coeff=0.8,
-        vine_bonus_coeff=0.01,
+        vine_bonus_coeff=0.3,
         vine_batch_size=64,
-        vine_epochs=5
+        vine_epochs=20
     )
 
     # Train agent
-    rewards = agent.train(num_episodes=500)
+    rewards = agent.train(num_episodes=600)
 
     # Plot results
     import matplotlib.pyplot as plt

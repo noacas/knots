@@ -1,7 +1,6 @@
 import random
 
 import torch
-
 """
 If two closed braids represent the same ambient isotopy class of oriented links (cf. also Braid theory), then one can transform one braid to another by a sequence of Markov moves:
 i) a↔bab^(−1) (conjugation).
@@ -21,8 +20,8 @@ def conjugation_markov_move(braid: torch.Tensor, j: int, k: int) -> torch.Tensor
     j = 1, 2, ..., max(abs(braid))
     """
     # Calculate the terms to add
-    term1 = torch.tensor([(-1) ** k * j], dtype=torch.float)
-    term2 = torch.tensor([(-1) ** (k + 1) * j], dtype=torch.float)
+    term1 = torch.tensor([(-1) ** k * j], dtype=torch.float).to(device=braid.device)
+    term2 = torch.tensor([(-1) ** (k + 1) * j], dtype=torch.float).to(device=braid.device)
     # Update braid: braid ← [(−1)^k j] + braid + [(−1)^(k+1) j]
     return torch.cat((term1, braid, term2), dim=0)
 
@@ -44,7 +43,7 @@ def new_strand_markov_move(braid: torch.Tensor, k: int) -> torch.Tensor:
     # Calculate the term to add
     term = (-1) ** k * (max_abs_braid(braid) + 1)
     # Update braid: braid ← braid + [(−1)^k (max(abs(braid))+1)]
-    new_element = torch.tensor([term], dtype=torch.float)
+    new_element = torch.tensor([term], dtype=torch.float).to(device=braid.device)
     return torch.cat((braid, new_element))
 
 

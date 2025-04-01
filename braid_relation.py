@@ -4,12 +4,19 @@ def _braid_relation1(braid: torch.Tensor, i: int) -> (torch.Tensor, bool):
     """
     Apply braid relation 1 to the braid at index i if possible
     """
+    device = braid.device
     length = braid.numel()
     p1, p2, p3 = i % length, (i + 1) % length, (i + 2) % length
     # Check for pattern [±k, ±(k+1), ±k] or [±(k+1), ±k, ±(k+1)]
     if braid[p1] == braid[p3] and (braid[p2] == braid[p1] + 1 or braid[p2] == braid[p1] - 1):
         # Check for pattern [k, (k+1), k] or [-(k+1), -k, -(k+1)] or [(k+1), k, (k+1)] or [-k, -(k+1), -k]
-        braid.index_copy_(0, torch.tensor([p1, p2, p3]), braid[torch.tensor([p2, p1, p2])])
+        if device != "cpu":
+            braid = braid.cpu()
+        indices = torch.tensor([p1, p2, p3])
+        values = braid[torch.tensor([p2, p1, p2])].cpu()
+        braid.index_copy_(0, indices, values)
+        if device != "cpu":
+            braid = braid.to(device)
         return braid, True
     return braid, False
 
@@ -49,7 +56,7 @@ def braid_relation2(braid: torch.Tensor) -> torch.Tensor:
     prev = braid[0]
     for i, cur in enumerate(braid[1:]):
         if abs(abs(prev) - abs(cur)) >= 2:
-            return torch.cat((braid[i+2:], braid[:i], torch.tensor([cur, prev], dtype=braid.dtype)))
+            return torch.cat((braid[i+2:], braid[:i], torch.tensor([cur, prev], dtype=braid.dtype, device=braid.device)), dim=0)
         prev = cur
     return braid
 

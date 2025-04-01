@@ -29,3 +29,4 @@ myst-parser>=2.0.0
 # Jupyter environment
 jupyter>=1.0.0
 ipython>=8.14.0
+colabcode~=0.3.0

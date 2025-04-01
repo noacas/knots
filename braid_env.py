@@ -18,7 +18,10 @@ class BraidEnvironment:
         self.punishment_for_illegal_action = -4 * self.n_braids_max
 
         self.current_braid = torch.tensor([], dtype=torch.float)
+        self.start_braid = torch.tensor([], dtype=torch.float)
         self.target_braid = torch.tensor([], dtype=torch.float)
+        self.chosen_moves = torch.tensor([], dtype=torch.float)
+        self.intermediate_braids = torch.zeros(self.max_steps, self.n_letters_max, dtype=torch.float)
         self.steps_taken = 0
 
         self.normalize = normalize
@@ -32,7 +35,9 @@ class BraidEnvironment:
         self.target_braid, self.current_braid = two_random_equivalent_knots(
             n_max=self.n_braids_max, n_max_second=self.n_letters_max, n_moves=self.max_steps
         )
-        # set up else
+        self.start_braid = self.current_braid.clone()
+        self.chosen_moves = torch.tensor([], dtype=torch.float)
+        self.intermediate_braids = torch.zeros(self.max_steps, self.n_letters_max, dtype=torch.float)
         self.steps_taken = 0
         state = self.get_state()
         return state
@@ -57,7 +62,7 @@ class BraidEnvironment:
             temperature=self.temperature,
             should_randomize_cur_and_target=False,
         )
-        new_env.steps_taken = self.steps_taken
+        new_env.steps_taken = 0
 
         def trim_zeros_tensor(tensor):
             nonzero_indices = torch.nonzero(tensor, as_tuple=True)[0]
@@ -67,6 +72,10 @@ class BraidEnvironment:
 
         new_env.current_braid = trim_zeros_tensor(env_state[:self.n_letters_max])
         new_env.target_braid = trim_zeros_tensor(env_state[self.n_letters_max:])
+        new_env.start_braid = self.current_braid.clone()
+        new_env.chosen_moves = torch.tensor([], dtype=torch.float)
+        new_env.intermediate_braids = torch.zeros(self.max_steps, self.n_letters_max, dtype=torch.float)
+
         return new_env
 
     def get_model_dim(self) -> int:
@@ -92,6 +101,9 @@ class BraidEnvironment:
         # self.n_braids_max+2: BraidRelation1 and ShiftRight
         # self.n_braids_max+3: BraidRelation2 and ShiftRight
         self.steps_taken += 1
+        should_punish = False
+
+        self.chosen_moves = torch.cat([self.chosen_moves, torch.tensor([action], dtype=torch.float)])
 
         if action == 0:
             self.current_braid = smart_collapse(self.current_braid)
@@ -102,7 +114,7 @@ class BraidEnvironment:
                 self.current_braid = conjugation_markov_move(self.current_braid, action, 0)
             else:
                 # if the braid is at its maximum length, the action is invalid
-                return self.get_state(), self.punishment_for_illegal_action, False, {}
+                should_punish = True
         elif action == self.n_braids_max:
             self.current_braid = shift_left(self.current_braid)
         elif action == self.n_braids_max + 1:
@@ -117,7 +129,9 @@ class BraidEnvironment:
             raise ValueError(f"Invalid action: {action}")
 
         # Calculate reward based on similarity to target
-        reward = self.calculate_reward()
+        reward = self.calculate_reward() if not should_punish else self.punishment_for_illegal_action
+
+        self.intermediate_braids[self.steps_taken-1] = self.get_padded_braid(self.current_braid)
 
         if len(self.current_braid) >= self.n_letters_max:
             # if the braid is at its maximum length, the episode is over
@@ -139,9 +153,10 @@ class BraidEnvironment:
         return combined_diff
 
     def calculate_reward(self) -> float:
-        combined_diff = self.braid_word_difference()
-        tempered_diff = combined_diff / self.temperature
-        total_diff = torch.sum(tempered_diff).item()
-        if self.normalize:
-            total_diff = total_diff / self.n_letters_max
-        return -total_diff
+        combined_diff =  self.braid_word_difference()
+        # tempered_diff = combined_diff / self.temperature
+        # total_diff = torch.sum(tempered_diff).item()
+        # if self.normalize:
+        #     total_diff = total_diff / self.n_letters_max
+        # return -total_diff
+        return -torch.sum(combined_diff).item() * self.n_letters_max
