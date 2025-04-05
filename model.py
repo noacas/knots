@@ -191,67 +191,6 @@ class BraidAttentionValue(nn.Module):
         # Dropout
         self.dropout = nn.Dropout(0.15)
 
-        # # Embedding layers for current and target braids
-        # self.current_embedding = nn.Linear(1, d_model)
-        # self.target_embedding = nn.Linear(1, d_model)
-        #
-        # # Positional encoding
-        # self.position_encoding = nn.Parameter(torch.randn(1, 100, d_model))  # Max length 100
-        #
-        # # Self-attention for current braid
-        # self.self_attention = MultiheadAttention(d_model, num_heads)
-        #
-        # # Cross-attention between current and target braids
-        # self.cross_attention = MultiheadAttention(d_model, num_heads)
-        #
-        # # Feed-forward layers
-        # self.ff1 = nn.Linear(d_model, d_model * 4)
-        # self.ff2 = nn.Linear(d_model * 4, d_model)
-        #
-        # # Layer normalization
-        # self.norm1 = nn.LayerNorm(d_model)
-        # self.norm2 = nn.LayerNorm(d_model)
-        # self.norm3 = nn.LayerNorm(d_model)
-        #
-        # # Output layer
-        # self.output = nn.Linear(d_model, 1)
-        #
-        # # Dropout
-        # self.dropout = nn.Dropout(0.1)
-
-    # def forward(self, x):
-    #     # Split input into current and target braids
-    #     batch_size = x.size(0)
-    #     seq_len = x.size(1) // 2
-    #     current_braid = x[:, :seq_len].unsqueeze(-1)
-    #     target_braid = x[:, seq_len:].unsqueeze(-1)
-    #
-    #     # Embed current and target braids
-    #     current = self.current_embedding(current_braid)
-    #     target = self.target_embedding(target_braid)
-    #
-    #     # Add positional encoding
-    #     current = current + self.position_encoding[:, :seq_len, :]
-    #     target = target + self.position_encoding[:, :seq_len, :]
-    #
-    #     # Self-attention on current braid
-    #     self_attn_output, _ = self.self_attention(current, current, current)
-    #     current = self.norm1(current + self.dropout(self_attn_output))
-    #
-    #     # Cross-attention between current and target braids
-    #     cross_attn_output, _ = self.cross_attention(current, target, target)
-    #     current = self.norm2(current + self.dropout(cross_attn_output))
-    #
-    #     # Feed-forward
-    #     ff_output = self.ff2(F.relu(self.ff1(current)))
-    #     current = self.norm3(current + self.dropout(ff_output))
-    #
-    #     # Pool across sequence dimension and project to output dimension
-    #     current = current.mean(dim=1)
-    #     output = self.output(current)
-    #
-    #     return output
-
     def forward(self, x):
         # Split input into current and target braids
         batch_size = x.size(0)
@@ -425,9 +364,9 @@ class TRPOAgent:
 
             if found_transformations:
                 print(f"success on {self.env.start_braid} to {self.env.target_braid}")
-                for i, move in enumerate(self.env.chosen_moves):
-                    braid = self.env.intermediate_braids[i]
-                    print(f"move: {move}, braid: {braid}")
+                # for i, move in enumerate(self.env.chosen_moves):
+                #     braid = self.env.intermediate_braids[i]
+                #     print(f"move: {move}, braid: {braid}")
                 print(f"total steps: {self.env.steps_taken}")
                 print("----------------------------------")
 
@@ -778,7 +717,7 @@ class TRPOAgent:
 # Main function to set up and run the training
 def main():
     # Set up environment
-    env = BraidEnvironment(n_braids_max=10, n_letters_max=20, max_steps=30)
+    env = BraidEnvironment(n_braids_max=10, n_letters_max=20, max_steps=100)
 
     # Get dimensions
     d_model = env.get_model_dim()  # Dimension of the model
