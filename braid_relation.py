@@ -53,6 +53,8 @@ def braid_relation2(braid: torch.Tensor) -> torch.Tensor:
     Apply braid relation 2 to the braid at first opportunity and then shift the result to the right.
     The replaced elements will be last in the braid.
     """
+    if braid.numel() == 0:
+        return braid
     prev = braid[0]
     for i, cur in enumerate(braid[1:]):
         if abs(abs(prev) - abs(cur)) >= 2:

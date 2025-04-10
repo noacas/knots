@@ -28,7 +28,7 @@ class BraidAttentionPolicy(nn.Module):
         self.target_embedding = nn.Linear(1, d_model)
 
         # Positional encoding
-        self.position_encoding = nn.Parameter(torch.randn(1, 100, d_model))  # Max length 100
+        # self.position_encoding = nn.Parameter(torch.randn(1, 100, d_model))  # Max length 100
 
         # Layer 1
         self.self_attention1 = nn.MultiheadAttention(d_model, num_heads)
@@ -65,6 +65,9 @@ class BraidAttentionPolicy(nn.Module):
         self.output_hidden = nn.Linear(d_model, d_model * 2)
         self.output = nn.Linear(d_model * 2, output_dim)
 
+        self.ln1 = nn.LayerNorm(d_model * 2)
+        self.ln2 = nn.LayerNorm(output_dim)
+
         # Dropout
         self.dropout = nn.Dropout(0.1)
         self.output_dropout = nn.Dropout(0.1 * 1.5)  # Slightly higher dropout for final layer
@@ -80,9 +83,9 @@ class BraidAttentionPolicy(nn.Module):
         current = self.current_embedding(current_braid)
         target = self.target_embedding(target_braid)
 
-        # Add positional encoding
-        current = current + self.position_encoding[:, :seq_len, :]
-        target = target + self.position_encoding[:, :seq_len, :]
+        # # Add positional encoding
+        # current = current + self.position_encoding[:, :seq_len, :]
+        # target = target + self.position_encoding[:, :seq_len, :]
 
         # ----- Multiple layers of attention -----
 
@@ -133,11 +136,20 @@ class BraidAttentionPolicy(nn.Module):
         current = current.mean(dim=1)
 
         # Final projection with deeper networks
-        hidden = F.relu(self.output_hidden(current))
+        hidden = self.ln1(F.relu(self.output_hidden(current)))
         hidden = self.output_dropout(hidden)
-        output = self.output(hidden)
+        output = self.ln2(self.output(hidden))
 
-        return F.softmax(output, dim=-1)
+        # Use a safer softmax approach
+        output = F.softmax(output.clamp(-20, 20), dim=-1)
+
+        # Extra safeguard against NaN
+        output = torch.where(torch.isnan(output), torch.tensor(1e-8, device=output.device), output)
+
+        # Renormalize to ensure a valid probability distribution
+        output = output / output.sum(dim=-1, keepdim=True).clamp(min=1e-10)
+
+        return output
 
 
 # BraidAttentionValue Network
@@ -152,7 +164,7 @@ class BraidAttentionValue(nn.Module):
         self.target_embedding = nn.Linear(1, d_model)
 
         # Positional encoding
-        self.position_encoding = nn.Parameter(torch.randn(1, 100, d_model))  # Max length 100
+        # self.position_encoding = nn.Parameter(torch.randn(1, 100, d_model))  # Max length 100
 
         # Layer 1
         self.self_attention1 = nn.MultiheadAttention(d_model, num_heads)
@@ -202,9 +214,9 @@ class BraidAttentionValue(nn.Module):
         current = self.current_embedding(current_braid)
         target = self.target_embedding(target_braid)
 
-        # Add positional encoding
-        current = current + self.position_encoding[:, :seq_len, :]
-        target = target + self.position_encoding[:, :seq_len, :]
+        # # Add positional encoding
+        # current = current + self.position_encoding[:, :seq_len, :]
+        # target = target + self.position_encoding[:, :seq_len, :]
 
         # Layer 1
         # Self-attention on current braid
@@ -282,6 +294,8 @@ class TRPOAgent:
         # For tracking state visitation
         self.state_visitation_count = {}
 
+        self.update_counter = 0  # Track number of policy updates
+
     def _get_state_key(self, state):
         # Convert state to a hashable representation using tensor hash
         if isinstance(state, torch.Tensor):
@@ -323,6 +337,8 @@ class TRPOAgent:
         log_probs = []
         dones = []
 
+        similarities = []
+
         state = self.env.reset()
         done = False
         total_reward = 0
@@ -340,7 +356,7 @@ class TRPOAgent:
             m = Categorical(action_probs)
             action = m.sample()
 
-            next_state, reward, done, _ = self.env.step(action.item())
+            #next_state, reward, done, found_transformations, similarity = self.env.step(action.item())
 
             # Track state visitation for VINE
             state_key = self._get_state_key(state)
@@ -356,7 +372,7 @@ class TRPOAgent:
             values.append(value.item())
             log_probs.append(m.log_prob(action).item())
             dones.append(done)
-            found_transformations = done and reward == 0
+            similarities.append(similarity)
 
             state = next_state
             total_reward += reward
@@ -377,6 +393,7 @@ class TRPOAgent:
         values_tensor = torch.tensor(values, dtype=torch.float, device=device)
         log_probs_tensor = torch.tensor(log_probs, dtype=torch.float, device=device)
         dones_tensor = torch.tensor(dones, dtype=torch.bool, device=device)
+        similarities_tensor = torch.tensor(similarities, dtype=torch.float, device=device)
 
         return {
             'states': states_tensor,
@@ -387,7 +404,8 @@ class TRPOAgent:
             'dones': dones_tensor,
             'total_reward': total_reward,
             'timesteps': timesteps,
-            "found_transformations": found_transformations
+            "found_transformations": found_transformations,
+            "similarities": similarities_tensor,
         }
 
     def compute_gae(self, trajectory):
@@ -454,10 +472,10 @@ class TRPOAgent:
             vine_actions = []
             vine_rewards = []
 
-            for _ in range(10): #5?  # Short rollout
+            for _ in range(5): #5?  # Short rollout
                 # Choose random action
                 action = torch.randint(0, env.get_action_space(), (1,), device=device).item()
-                next_state, reward, done, _ = env.step(action)
+                #next_state, reward, done, _, _ = env.step(action)
                 next_state = next_state.to(device)
 
                 vine_states.append(next_state)
@@ -581,57 +599,88 @@ class TRPOAgent:
 
         # Get flat gradient
         grad = torch.cat([param.grad.view(-1) for param in self.policy.parameters()]).to(device)
+
+        # Clip gradient to prevent extreme values
+        max_grad_norm = 5.0
+        grad_norm = torch.norm(grad)
+        if grad_norm > max_grad_norm:
+            grad = grad * max_grad_norm / grad_norm
+
         return grad
 
     def update_policy(self, trajectory, advantages):
         states = trajectory['states']
         actions = trajectory['actions']
+        iteration = getattr(self, 'update_counter', 0)  # Track update iterations
 
         # Normalize advantages
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
-        # Get current parameters
+        # Get current parameters and action probabilities
         old_params = self.get_flat_params()
+        with torch.no_grad():
+            old_action_probs = self.policy(states)
+
+        # Compute initial loss for comparison
+        old_loss = self.evaluate_policy(states, actions, advantages)
 
         # Compute policy gradient
         policy_gradient = self.compute_policy_gradient(states, actions, advantages)
+        gradient_norm = torch.norm(policy_gradient).item()
 
-        # Compute step direction and magnitude
-        step = policy_gradient
-        step_norm = torch.norm(step)
-        if step_norm > 0:
-            step = step / step_norm
+        # Set damping coefficient for CG
+        self.cg_damping = 0.2
+
+        # Use conjugate gradient to compute Hx = g
+        step_direction = self.conjugate_gradient(states, old_action_probs, policy_gradient)
+
+        # Compute step size using Hessian-vector product
+        shs = 0.5 * (step_direction * self.hessian_vector_product(states, old_action_probs, step_direction)).sum()
+        lm = torch.sqrt(2 * self.max_param_change / (shs + 1e-8))
+        full_step = step_direction * lm
 
         # Line search in parameter space
-        for stepsize in [self.max_param_change * (self.backtrack_coeff ** i)
-                         for i in range(self.backtrack_iters)]:
+        success = False
+        tiny_step_factor = 1e-4
 
+        for stepsize in [1.0 * (self.backtrack_coeff ** i) for i in range(self.backtrack_iters)]:
             # Compute proposed new parameters
-            new_params = old_params + stepsize * step
-
-            # Enforce trust region constraint
-            param_diff = new_params - old_params
-            param_norm = torch.norm(param_diff)
-            if param_norm > self.max_param_change:
-                scaling = self.max_param_change / param_norm
-                new_params = old_params + param_diff * scaling
+            new_params = old_params + stepsize * full_step
 
             # Try new parameters
             self.set_flat_params(new_params)
 
-            # Evaluate improvement
-            new_loss = self.evaluate_policy(states, actions, advantages)
+            # Evaluate improvement with extra checks for numerical stability
+            try:
+                new_loss = self.evaluate_policy(states, actions, advantages)
 
-            # Accept if loss improved
-            if new_loss < trajectory.get('old_loss', float('inf')):
-                trajectory['old_loss'] = new_loss
-                return True
+                # Check if the loss is finite
+                if not torch.isfinite(torch.tensor(new_loss)):
+                    continue
 
-            # Revert parameters if no improvement
-            self.set_flat_params(old_params)
+                # Calculate KL divergence
+                with torch.no_grad():
+                    current_action_probs = self.policy(states)
+                    kl_div = F.kl_div(current_action_probs.log(), old_action_probs, reduction='batchmean')
 
-        print("Line search failed!")
-        return False
+                # Only accept if improvement is positive and KL is in bounds
+                actual_improve = old_loss - new_loss
+                if actual_improve > 0 and kl_div < self.max_param_change:
+                    trajectory['old_loss'] = new_loss
+                    success = True
+                    break
+            except RuntimeError as e:
+                print(f"Runtime error in line search: {e}")
+                continue
+
+        return success
+
+    def log_update_info(self, iteration, kl, loss_before, loss_after, gradient_norm):
+        print(f"Update {iteration}:")
+        print(f"  KL divergence: {kl:.6f}")
+        print(f"  Loss before: {loss_before:.6f}, after: {loss_after:.6f}")
+        print(f"  Improvement: {loss_before - loss_after:.6f}")
+        print(f"  Gradient norm: {gradient_norm:.6f}")
 
     def evaluate_policy(self, states, actions, advantages):
         """Evaluate the policy loss"""
@@ -656,6 +705,7 @@ class TRPOAgent:
     def train(self, num_episodes=1000):
         rewards_history = []
         success_history = []
+        similarities_history = []
         found_transformations = 0
 
         # Initialize running statistics
@@ -687,6 +737,9 @@ class TRPOAgent:
             rewards_history.append(episode_reward)
             found_transformations += int(trajectory['found_transformations'])
 
+            # Record similarity
+            similarities_history.append(trajectory['similarities'][-1])
+
             # Decay VINE bonus coefficient
             self.vine_bonus_coeff *= 0.995  # Gradually reduce exploration bonus
 
@@ -698,6 +751,8 @@ class TRPOAgent:
                 running_reward = 0.95 * running_reward + 0.05 * episode_reward
                 running_loss = 0.95 * running_loss + 0.05 * trajectory.get('old_loss', running_loss)
 
+            print("Similarity progress: ", trajectory['similarities'])
+
             # Print progress
             if (episode + 1) % 10 == 0:
                 recent_success = torch.tensor(success_history[-10:], dtype=torch.float, device=device)
@@ -707,9 +762,13 @@ class TRPOAgent:
                 print(f"Episode reward: {episode_reward:.2f}")
                 print(f"Running loss: {running_loss:.4f}")
                 print(f"Success rate: {success_rate:.2f}")
-                print(f"found transformations in: {found_transformations}")
+                print(f"Found transformations in: {found_transformations}")
+                print(f"Final similarities: {similarities_history}")
                 found_transformations = 0
+                similarities_history = []
                 print("------------------------")
+            if episode == 400:
+                continue
 
         return rewards_history
 
@@ -717,7 +776,7 @@ class TRPOAgent:
 # Main function to set up and run the training
 def main():
     # Set up environment
-    env = BraidEnvironment(n_braids_max=10, n_letters_max=20, max_steps=100)
+    env = BraidEnvironment(n_braids_max=5, n_letters_max=10, max_steps=10, max_steps_in_generation=1)
 
     # Get dimensions
     d_model = env.get_model_dim()  # Dimension of the model
@@ -735,7 +794,7 @@ def main():
         value_network=value_net,
         gamma=0.99,
         lam=0.95,
-        max_param_change=0.1,  # Maximum allowed parameter change magnitude
+        max_param_change=0.2,  # Maximum allowed parameter change magnitude
         backtrack_iters=10,
         backtrack_coeff=0.8,
         vine_bonus_coeff=0.3,
