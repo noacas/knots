@@ -1,6 +1,4 @@
 """Training inspired by the training presented at 'Learning to Unknot'"""
-import logging
-
 import torch
 from torch import nn
 
