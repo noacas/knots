@@ -4,15 +4,19 @@ from torch import nn
 
 import argparse
 import logging
+import os.path as os_pth
+import json
 
 import pfrl
 
 from braid_env import BraidEnvironment
+from metrics import MetricsTracker, MetricsEvaluationHook, MetricsStepHook
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--gpu", type=int, default=-1, help="GPU device ID. Set to -1 to use CPUs only."
+        "--gpu", type=int, default=-1, help="GPU device ID, 0 for GPU, -1 to use CPUs only."
     )
     parser.add_argument("--seed", type=int, default=0, help="Random seed [0, 2 ** 32)")
     parser.add_argument(
@@ -40,17 +44,10 @@ def parse_args():
         help="Number of episodes ran in an evaluation phase",
     )
     parser.add_argument(
-        "--render", action="store_true", default=False, help="Render the env"
-    )
-    parser.add_argument(
         "--demo",
         action="store_true",
         default=False,
         help="Run demo episodes, not training",
-    )
-    parser.add_argument("--load-pretrained", action="store_true", default=False)
-    parser.add_argument(
-        "--pretrained-type", type=str, default="best", choices=["best", "final"]
     )
     parser.add_argument(
         "--load",
@@ -70,14 +67,6 @@ def parse_args():
     parser.add_argument(
         "--log-level", type=int, default=logging.INFO, help="Level of the root logger."
     )
-    parser.add_argument(
-        "--monitor",
-        action="store_true",
-        help=(
-            "Monitor the env by gym.wrappers.Monitor."
-            " Videos and additional log will be saved."
-        ),
-    )
     args = parser.parse_args()
 
     logging.basicConfig(level=args.log_level)
@@ -91,8 +80,11 @@ def main():
     pfrl.utils.set_random_seed(args.seed)
 
     args.outdir = pfrl.experiments.prepare_output_dir(args, args.outdir)
+    metrics_tracker = MetricsTracker(os_pth.join(args.outdir, 'metrics'))
+    evaluation_hook = MetricsEvaluationHook(metrics_tracker, args.outdir)
+    step_hook = MetricsStepHook(metrics_tracker)
 
-    env = BraidEnvironment(n_braids_max=5, n_letters_max=10, max_steps=10, max_steps_in_generation=1)
+    env = BraidEnvironment(n_braids_max=5, n_letters_max=10, max_steps=10, max_steps_in_generation=5)
     timestep_limit = env.max_steps
     obs_size = env.get_model_dim()
     action_size = env.get_action_space()
@@ -154,16 +146,7 @@ def main():
     )
 
     if args.load or args.load_pretrained:
-        # either load or load_pretrained must be false
-        assert not args.load or not args.load_pretrained
-        if args.load:
-            agent.load(args.load)
-        else:
-            agent.load(
-                pfrl.utils.download_model(
-                    "TRPO", args.env, model_type=args.pretrained_type
-                )[0]
-            )
+        agent.load(args.load)
 
     if args.demo:
         eval_stats = pfrl.experiments.eval_performance(
@@ -181,10 +164,7 @@ def main():
                 eval_stats["stdev"],
             )
         )
-        import json
-        import os
-
-        with open(os.path.join(args.outdir, "demo_scores.json"), "w") as f:
+        with open(os_pth.join(args.outdir, "demo_scores.json"), "w") as f:
             json.dump(eval_stats, f)
     else:
         pfrl.experiments.train_agent_with_evaluation(
@@ -197,6 +177,8 @@ def main():
             eval_n_episodes=args.eval_n_runs,
             eval_interval=args.eval_interval,
             train_max_episode_len=timestep_limit,
+            step_hooks=[step_hook],
+            evaluation_hooks=[evaluation_hook],
         )
 
 
