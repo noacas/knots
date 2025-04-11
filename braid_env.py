@@ -1,5 +1,6 @@
 from typing import Tuple
 
+import logging
 import torch
 
 from braid_relation import shift_left, shift_right, braid_relation1, braid_relation2
@@ -25,6 +26,7 @@ class BraidEnvironment:
         #self.chosen_moves = torch.tensor([], dtype=torch.float)
         #self.intermediate_braids = torch.zeros(self.max_steps, self.n_letters_max, dtype=torch.float)
         self.steps_taken = 0
+        self.success = False
 
         #self.normalize = normalize
         #self.temperature = max(0.1, temperature)
@@ -41,6 +43,7 @@ class BraidEnvironment:
         #self.chosen_moves = torch.tensor([], dtype=torch.float)
         #self.intermediate_braids = torch.zeros(self.max_steps, self.n_letters_max, dtype=torch.float)
         self.steps_taken = 0
+        self.success = False
         state = self.get_state()
         return state
 
@@ -65,7 +68,6 @@ class BraidEnvironment:
             #temperature=self.temperature,
             should_randomize_cur_and_target=False,
         )
-        new_env.steps_taken = 0
 
         def trim_zeros_tensor(tensor):
             nonzero_indices = torch.nonzero(tensor, as_tuple=True)[0]
@@ -146,8 +148,10 @@ class BraidEnvironment:
             pass
 
         # Check if done
-        found_transformation = torch.equal(self.current_braid, self.target_braid)
-        done = (found_transformation or self.steps_taken >= self.max_steps)
+        self.success = torch.equal(self.current_braid, self.target_braid)
+        if self.success:
+            logging.info("Found transformation! after %d steps", self.steps_taken)
+        done = (self.success or self.steps_taken >= self.max_steps)
 
         return self.get_state(), reward, done, {} #found_transformation, similarity
 
