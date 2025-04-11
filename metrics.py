@@ -11,15 +11,19 @@ from pfrl.experiments.hooks import StepHook
 class MetricsTracker:
     def __init__(self, save_dir):
         self.metrics = defaultdict(list)
+        self.success_metrics = defaultdict(list)
         self.save_dir = save_dir
         os.makedirs(save_dir, exist_ok=True)
 
     def add_metric(self, name, value, step):
         self.metrics[name].append((step, value))
 
-    def save_metrics(self):
+    def add_success_metric(self, name, value, step):
+        self.success_metrics[name].append((step, value))
+
+    def save_metrics(self, metrics, file_name):
         metrics_df = pd.DataFrame()
-        for name, values in self.metrics.items():
+        for name, values in metrics.items():
             steps, metric_values = zip(*values)
             temp_df = pd.DataFrame({'step': steps, name: metric_values})
             if metrics_df.empty:
@@ -27,11 +31,12 @@ class MetricsTracker:
             else:
                 metrics_df = pd.merge(metrics_df, temp_df, on='step', how='outer')
 
-        metrics_df.to_csv(os.path.join(self.save_dir, 'metrics.csv'), index=False)
+        metrics_df.to_csv(os.path.join(self.save_dir, f'{file_name}.csv'), index=False)
         return metrics_df
 
     def plot_learning_curves(self):
-        metrics_df = self.save_metrics()
+        metrics_df = self.save_metrics(self.metrics, 'metrics')
+        success_metrics_df = self.save_metrics(self.success_metrics, 'success_metrics')
 
         # Plot reward curves
         plt.figure(figsize=(12, 8))
@@ -47,19 +52,29 @@ class MetricsTracker:
         plt.grid(True, alpha=0.3)
         plt.savefig(os.path.join(self.save_dir, 'reward_curves.png'), dpi=300)
 
-        # Plot loss curves
+        # Plot success curve
         plt.figure(figsize=(12, 8))
-        loss_cols = [col for col in metrics_df.columns if 'loss' in col.lower()]
+        cols = [col for col in success_metrics_df.columns if 'success' == col.lower()]
 
-        for col in loss_cols:
-            plt.plot(metrics_df['step'], metrics_df[col], label=col)
+        for col in cols:
+            plt.plot(success_metrics_df['step'], success_metrics_df[col], label=col)
 
-        plt.title('Learning Curves - Losses')
+        plt.title('Learning Curves - Successes')
         plt.xlabel('Steps')
-        plt.ylabel('Loss')
+        plt.ylabel('Success')
         plt.legend()
         plt.grid(True, alpha=0.3)
-        plt.savefig(os.path.join(self.save_dir, 'loss_curves.png'), dpi=300)
+        plt.savefig(os.path.join(self.save_dir, 'success_curves.png'), dpi=300)
+
+        # plot success after how many moves
+        plt.figure(figsize=(12, 8))
+        cols = [col for col in success_metrics_df.columns if 'success_after_moves' in col.lower()]
+        for col in cols:
+            plt.plot(success_metrics_df['step'], success_metrics_df[col], label=col)
+        plt.title('Learning Curves - Success After Moves')
+        plt.xlabel('Steps')
+        plt.ylabel('Success After Moves')
+        plt.legend()
 
 
 class MetricsStepHook(StepHook):
@@ -69,7 +84,10 @@ class MetricsStepHook(StepHook):
 
     def __call__(self, env, agent, step):
         if env.success:
-            self.metrics_tracker.add_metric('success', step, step)
+            self.metrics_tracker.add_success_metric('success_after_moves', env.steps_taken, step)
+            self.metrics_tracker.add_success_metric('success', 1, step)
+        elif env.done:
+            self.metrics_tracker.add_success_metric('success', 0, step)
 
 
 class MetricsEvaluationHook(EvaluationHook):
@@ -85,13 +103,3 @@ class MetricsEvaluationHook(EvaluationHook):
         # Add metrics from evaluation
         self.metrics_tracker.add_metric('eval_mean_reward', eval_stats['mean'], step)
         self.metrics_tracker.add_metric('eval_median_reward', eval_stats['median'], step)
-        success_rate = sum(1 for r in eval_stats['rewards'] if r > 0) / len(eval_stats['rewards'])
-        self.metrics_tracker.add_metric('eval_success_rate', success_rate, step)
-
-        # Plot current learning curves
-        self.metrics_tracker.plot_learning_curves()
-
-        # Save agent checkpoint
-        agent.save(os.path.join(self.outdir, f'agent_step_{step}'))
-
-        return eval_stats

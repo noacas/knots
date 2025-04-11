@@ -27,6 +27,7 @@ class BraidEnvironment:
         #self.intermediate_braids = torch.zeros(self.max_steps, self.n_letters_max, dtype=torch.float)
         self.steps_taken = 0
         self.success = False
+        self.done = False
 
         #self.normalize = normalize
         #self.temperature = max(0.1, temperature)
@@ -44,6 +45,7 @@ class BraidEnvironment:
         #self.intermediate_braids = torch.zeros(self.max_steps, self.n_letters_max, dtype=torch.float)
         self.steps_taken = 0
         self.success = False
+        self.done = False
         state = self.get_state()
         return state
 
@@ -151,6 +153,7 @@ class BraidEnvironment:
         self.success = torch.equal(self.current_braid, self.target_braid)
         if self.success:
             logging.info("Found transformation! after %d steps", self.steps_taken)
+        self.done = self.steps_taken >= self.max_steps
         info = {"needs_reset": self.steps_taken >= self.max_steps}
 
         return self.get_state(), reward, self.success, info

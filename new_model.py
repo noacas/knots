@@ -80,7 +80,7 @@ def parse_args():
         help="Target braid length.",
     )
     parser.add_argument(
-        "--max-step-for-braid",
+        "--max-steps-for-braid",
         type=int,
         default=100,
         help="Maximum steps for braid.",
@@ -101,7 +101,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         eval_n_runs=100, demo=False, load="", load_pretrained=False,
         trpo_update_interval=5000, log_level=logging.INFO,
         current_braid_length=20, target_braid_length=40,
-        max_step_for_braid=100, max_steps_in_generation=20,
+        max_steps_for_braid=100, max_steps_in_generation=20,
         ):
     """Run the training or demo process with the given parameters.
 
@@ -119,7 +119,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         log_level (int): Level of the root logger
         current_braid_length (int): Current braid length
         target_braid_length (int): Target braid length
-        max_step_for_braid (int): Maximum steps for braid
+        max_steps_for_braid (int): Maximum steps for braid
         max_steps_in_generation (int): Maximum steps in generation
     """
     # Create a dictionary of arguments for compatibility with existing code
@@ -137,7 +137,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         "log_level": log_level,
         "current_braid_length": current_braid_length,
         "target_braid_length": target_braid_length, # target should be longer than current,
-        "max_step_for_braid": max_step_for_braid,
+        "max_steps_for_braid": max_steps_for_braid,
         "max_steps_in_generation": max_steps_in_generation,
     }
 
@@ -155,7 +155,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
     env = BraidEnvironment(
         n_braids_max=args["current_braid_length"],
         n_letters_max=args["target_braid_length"],
-        max_steps=args["max_step_for_braid"],
+        max_steps=args["max_steps_for_braid"],
         max_steps_in_generation=args["max_steps_in_generation"],
     )
     timestep_limit = env.max_steps
@@ -253,6 +253,8 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
             step_hooks=[step_hook],
             evaluation_hooks=[evaluation_hook],
         )
+
+    metrics_tracker.plot_learning_curves()
 
 
 def main():
