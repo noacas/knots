@@ -67,24 +67,97 @@ def parse_args():
     parser.add_argument(
         "--log-level", type=int, default=logging.INFO, help="Level of the root logger."
     )
+    parser.add_argument(
+        "--current-braid-length",
+        type=int,
+        default=20,
+        help="Current braid length.",
+    )
+    parser.add_argument(
+        "--target-braid-length",
+        type=int,
+        default=40,
+        help="Target braid length.",
+    )
+    parser.add_argument(
+        "--max-step-for-braid",
+        type=int,
+        default=100,
+        help="Maximum steps for braid.",
+    )
+    parser.add_argument(
+        "--max-steps-in-generation",
+        type=int,
+        default=20,
+        help="Maximum steps in generation.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=args.log_level)
     return args
 
 
-def main():
-    args = parse_args()
+def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=100000,
+        eval_n_runs=100, demo=False, load="", load_pretrained=False,
+        trpo_update_interval=5000, log_level=logging.INFO,
+        current_braid_length=20, target_braid_length=40,
+        max_step_for_braid=100, max_steps_in_generation=20,
+        ):
+    """Run the training or demo process with the given parameters.
 
-    # Set random seed
-    pfrl.utils.set_random_seed(args.seed)
+    Args:
+        seed (int): Random seed
+        gpu (int): GPU device ID, 0 for GPU, -1 to use CPUs only
+        outdir (str): Directory path to save output files
+        steps (int): Total time steps for training
+        eval_interval (int): Interval between evaluation phases in steps
+        eval_n_runs (int): Number of episodes ran in an evaluation phase
+        demo (bool): Run demo episodes, not training
+        load (str): Directory path to load a saved agent data from
+        load_pretrained (bool): Whether to load a pretrained model
+        trpo_update_interval (int): Interval steps of TRPO iterations
+        log_level (int): Level of the root logger
+        current_braid_length (int): Current braid length
+        target_braid_length (int): Target braid length
+        max_step_for_braid (int): Maximum steps for braid
+        max_steps_in_generation (int): Maximum steps in generation
+    """
+    # Create a dictionary of arguments for compatibility with existing code
+    args = {
+        "seed": seed,
+        "gpu": gpu,
+        "outdir": outdir,
+        "steps": steps,
+        "eval_interval": eval_interval,
+        "eval_n_runs": eval_n_runs,
+        "demo": demo,
+        "load": load,
+        "load_pretrained": load_pretrained,
+        "trpo_update_interval": trpo_update_interval,
+        "log_level": log_level,
+        "current_braid_length": current_braid_length,
+        "target_braid_length": target_braid_length, # target should be longer than current,
+        "max_step_for_braid": max_step_for_braid,
+        "max_steps_in_generation": max_steps_in_generation,
+    }
 
-    args.outdir = pfrl.experiments.prepare_output_dir(args, args.outdir)
-    metrics_tracker = MetricsTracker(os_pth.join(args.outdir, 'metrics'))
-    evaluation_hook = MetricsEvaluationHook(metrics_tracker, args.outdir)
+    assert args["current_braid_length"] <= args["target_braid_length"], "Current braid length should be less than or equal to target braid length."
+
+    # Set up logging
+    logging.basicConfig(level=args["log_level"])
+
+    pfrl.utils.set_random_seed(args["seed"])
+    args["outdir"] = pfrl.experiments.prepare_output_dir(args, args["outdir"])
+    metrics_tracker = MetricsTracker(os_pth.join(args["outdir"], 'metrics'))
+    evaluation_hook = MetricsEvaluationHook(metrics_tracker, args["outdir"])
     step_hook = MetricsStepHook(metrics_tracker)
 
-    env = BraidEnvironment(n_braids_max=5, n_letters_max=10, max_steps=10, max_steps_in_generation=5)
+    env = BraidEnvironment(
+        n_braids_max=args["current_braid_length"],
+        n_letters_max=args["target_braid_length"],
+        max_steps=args["max_step_for_braid"],
+        max_steps_in_generation=args["max_steps_in_generation"],
+    )
     timestep_limit = env.max_steps
     obs_size = env.get_model_dim()
     action_size = env.get_action_space()
@@ -93,7 +166,7 @@ def main():
 
     # Normalize observations based on their empirical mean and variance
     obs_normalizer = pfrl.nn.EmpiricalNormalization(
-       obs_size, clip_threshold=5
+        obs_size, clip_threshold=5
     )
 
     policy = torch.nn.Sequential(
@@ -134,8 +207,8 @@ def main():
         vf=vf,
         vf_optimizer=vf_opt,
         obs_normalizer=obs_normalizer,
-        gpu=args.gpu,
-        update_interval=args.trpo_update_interval,
+        gpu=args["gpu"],
+        update_interval=args["trpo_update_interval"],
         max_kl=0.01,
         conjugate_gradient_max_iter=20,
         conjugate_gradient_damping=1e-1,
@@ -145,41 +218,50 @@ def main():
         entropy_coef=0.01,
     )
 
-    if args.load or args.load_pretrained:
-        agent.load(args.load)
+    if args["load"] or args.get("load_pretrained", False):
+        agent.load(args["load"])
 
-    if args.demo:
+    if args["demo"]:
         eval_stats = pfrl.experiments.eval_performance(
             env=env,
             agent=agent,
             n_steps=None,
-            n_episodes=args.eval_n_runs,
+            n_episodes=args["eval_n_runs"],
             max_episode_len=timestep_limit,
         )
         print(
             "n_runs: {} mean: {} median: {} stdev {}".format(
-                args.eval_n_runs,
+                args["eval_n_runs"],
                 eval_stats["mean"],
                 eval_stats["median"],
                 eval_stats["stdev"],
             )
         )
-        with open(os_pth.join(args.outdir, "demo_scores.json"), "w") as f:
+        with open(os_pth.join(args["outdir"], "demo_scores.json"), "w") as f:
             json.dump(eval_stats, f)
     else:
         pfrl.experiments.train_agent_with_evaluation(
             agent=agent,
             env=env,
             eval_env=env,
-            outdir=args.outdir,
-            steps=args.steps,
+            outdir=args["outdir"],
+            steps=args["steps"],
             eval_n_steps=None,
-            eval_n_episodes=args.eval_n_runs,
-            eval_interval=args.eval_interval,
+            eval_n_episodes=args["eval_n_runs"],
+            eval_interval=args["eval_interval"],
             train_max_episode_len=timestep_limit,
             step_hooks=[step_hook],
             evaluation_hooks=[evaluation_hook],
         )
+
+
+def main():
+    """Parse command line arguments and run the code."""
+    args = parse_args()
+    # Convert the argparse Namespace to a dictionary
+    args_dict = vars(args)
+    # Call run with unpacked arguments
+    run(**args_dict)
 
 
 if __name__ == "__main__":

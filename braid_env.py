@@ -151,9 +151,9 @@ class BraidEnvironment:
         self.success = torch.equal(self.current_braid, self.target_braid)
         if self.success:
             logging.info("Found transformation! after %d steps", self.steps_taken)
-        done = (self.success or self.steps_taken >= self.max_steps)
+        info = {"needs_reset": self.steps_taken >= self.max_steps}
 
-        return self.get_state(), reward, done, {} #found_transformation, similarity
+        return self.get_state(), reward, self.success, info
 
     def braid_word_difference(self) -> torch.Tensor:
 
