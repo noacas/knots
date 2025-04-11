@@ -75,6 +75,8 @@ class MetricsTracker:
         plt.xlabel('Steps')
         plt.ylabel('Success After Moves')
         plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.savefig(os.path.join(self.save_dir, 'success_after_moves.png'), dpi=300)
 
 
 class MetricsStepHook(StepHook):
