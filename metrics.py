@@ -68,9 +68,8 @@ class MetricsTracker:
 
         # plot success after how many moves
         plt.figure(figsize=(12, 8))
-        cols = [col for col in success_metrics_df.columns if 'success_after_moves' in col.lower()]
-        for col in cols:
-            plt.plot(success_metrics_df['step'], success_metrics_df[col], label=col)
+        success_after_moves = success_metrics_df[success_metrics_df['success_after_moves'].notnull()]
+        plt.plot(success_after_moves['step'], success_after_moves['success_after_moves'], label=col)
         plt.title('Learning Curves - Success After Moves')
         plt.xlabel('Steps')
         plt.ylabel('Success After Moves')
