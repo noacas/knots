@@ -13,6 +13,11 @@ from reformer_networks import create_reformer_policy, create_reformer_vf
 from feed_forward_networks import create_ffn_policy, create_ffn_vf, initialize_ffn
 from trpo import MyTRPO as TRPO
 
+# Configure PyTorch for memory efficiency
+torch.backends.cuda.matmul.allow_tf32 = True  # Use TF32 precision
+torch.backends.cudnn.benchmark = True  # Use cuDNN autotuner
+torch.cuda.empty_cache()  # Clear any existing cached memory
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser()

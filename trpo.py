@@ -36,12 +36,12 @@ class MyTRPO(TRPO):
                 vec = vec.detach()  # Detach to avoid building computation history
 
             # Clear intermediate tensors
-            del flat_kl_grads
+            del kl_grads
             torch.cuda.empty_cache()
 
             # Compute HVP with memory management
             try:
-                fvp = _hessian_vector_product(kl, policy_params, vec)
+                fvp = _hessian_vector_product(flat_kl_grads, policy_params, vec)
                 return fvp
             except RuntimeError as e:
                 if "CUDA out of memory" in str(e):
@@ -64,20 +64,15 @@ class MyTRPO(TRPO):
         torch.cuda.empty_cache()
 
         try:
-            # Try standard CG with reduced iterations
-            max_iter = min(10, self._conjugate_gradient_max_iter)
-            damping = self._conjugate_gradient_damping
-
             step_direction = pfrl.utils.conjugate_gradient(
                 fisher_vector_product_func,
                 flat_gain_grads,
-                max_iter=max_iter,
-                damping=damping
+                max_iter=self.conjugate_gradient_max_iter,
             )
 
             # Calculate the scale factor
             dId = float(step_direction.dot(fisher_vector_product_func(step_direction)))
-            scale = (2.0 * self._max_kl / (dId + 1e-8)) ** 0.5
+            scale = (2.0 * self.max_kl / (dId + 1e-8)) ** 0.5
 
             # Clear memory after computation
             gc.collect()
@@ -93,34 +88,3 @@ class MyTRPO(TRPO):
 
             # Just use the gradient direction with a small step size
             return flat_gain_grads * 0.01
-
-    def _update_policy(self, trajectories):
-        """Add memory management to the policy update"""
-        try:
-            # Clear memory before update
-            gc.collect()
-            torch.cuda.empty_cache()
-
-            # Use parent class update with memory managed step computation
-            return super()._update_policy(trajectories)
-
-        except RuntimeError as e:
-            print(f"Error in policy update: {e}")
-            if "CUDA out of memory" in str(e):
-                print("CUDA OOM in policy update, using simplified update")
-
-                # Very simple and memory-efficient fallback update
-                if not hasattr(self, '_fallback_optimizer'):
-                    self._fallback_optimizer = torch.optim.Adam(
-                        self.policy.parameters(), lr=1e-4
-                    )
-
-                # Simple policy gradient update that uses very little memory
-                loss = -self._compute_gain(trajectories)
-                self._fallback_optimizer.zero_grad()
-                loss.backward()
-                self._fallback_optimizer.step()
-
-                return {"policy_loss": float(loss.detach().cpu().numpy()), "fallback": True}
-            else:
-                raise
