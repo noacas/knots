@@ -108,7 +108,7 @@ def create_reformer_policy(obs_size: int, action_size: int, pooling='mean') -> n
         pooling: Method to aggregate sequence ('mean', 'max', 'first', or 'last')
     """
     # For braids, we want to set the dimension to a reasonable embedding size
-    embedding_dim = 64
+    embedding_dim = 16
 
     reformer = ReformerKnots(
         dim=embedding_dim,  # Dimension of each token embedding
@@ -131,7 +131,7 @@ def create_reformer_policy(obs_size: int, action_size: int, pooling='mean') -> n
 def create_reformer_vf(obs_size: int, pooling='mean') -> nn.Module:
     """Create a value function network using Reformer architecture."""
     # Embedding dimension for each braid element
-    embedding_dim = 64
+    embedding_dim = 16
 
     return ReformerKnots(
         dim=embedding_dim,
