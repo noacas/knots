@@ -3,6 +3,7 @@ import argparse
 import logging
 import os.path as os_pth
 import json
+import functools
 
 import pfrl
 
@@ -121,6 +122,17 @@ def parse_args():
     return args
 
 
+def patch_backward_for_unused():
+    original_backward = torch.autograd.backward
+
+    @functools.wraps(original_backward)
+    def backward_wrapper(*args, **kwargs):
+        kwargs['allow_unused'] = True
+        return original_backward(*args, **kwargs)
+
+    torch.autograd.backward = backward_wrapper
+
+
 def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=100000,
                       eval_n_runs=100, demo=False, load="", load_pretrained=False,
                       trpo_update_interval=5000, log_level=logging.INFO,
@@ -223,6 +235,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
     # an Optimizer. Only the value function needs it.
     vf_opt = torch.optim.Adam(vf.parameters())
 
+    patch_backward_for_unused()
     # Hyperparameters in http://arxiv.org/abs/1709.06560
     agent = pfrl.agents.TRPO(
         policy=policy,
