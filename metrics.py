@@ -84,7 +84,8 @@ class MetricsTracker:
 
         plt.figure(figsize=(12, 8))
         for col in success_rate_df.columns:
-            plt.plot(success_rate_df['step'], success_rate_df[col], label=col)
+            if col != "step":
+                plt.plot(success_rate_df['step'], success_rate_df[col], label=col)
 
         plt.title('Learning Curves - Successes')
         plt.xlabel('Steps')
