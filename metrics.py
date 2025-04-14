@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from collections import defaultdict
 import os
@@ -8,6 +9,28 @@ from pfrl.experiments.hooks import StepHook
 
 
 # Create a metrics tracker class
+def create_success_rate_df(df):
+    # Group by step and calculate success metrics
+    df["rounded_step"] = df["step"].round(-2)
+    success_by_step = df.groupby('rounded_step')['success'].agg(['count', 'sum']).reset_index()
+
+    # Calculate success rate
+    success_by_step['success_rate'] = success_by_step['sum'] / success_by_step['count'] * 100
+
+    # Rename columns for clarity
+    success_by_step.rename(columns={
+        'rounded_step': 'step',
+        'count': 'total_attempts',
+        'sum': 'successful_attempts'
+    }, inplace=True)
+
+    # Add rolling average to smooth out the data (optional)
+    if len(success_by_step) >= 100:
+        success_by_step['avg_success_rate'] = success_by_step['success_rate'].rolling(window=100, center=False).mean()
+
+    return success_by_step
+
+
 class MetricsTracker:
     def __init__(self, save_dir):
         self.metrics = defaultdict(list)
@@ -53,10 +76,10 @@ class MetricsTracker:
         plt.savefig(os.path.join(self.save_dir, 'reward_curves.png'), dpi=300)
 
         # Plot success curve
-        plt.figure(figsize=(12, 8))
-        cols = [col for col in success_metrics_df.columns if 'success' == col.lower()]
+        success_rate_df = create_success_rate_df(success_metrics_df)
 
-        for col in cols:
+        plt.figure(figsize=(12, 8))
+        for col in success_rate_df.columns:
             plt.plot(success_metrics_df['step'], success_metrics_df[col], label=col)
 
         plt.title('Learning Curves - Successes')
