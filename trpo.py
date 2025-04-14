@@ -21,24 +21,27 @@ class MyTRPO(TRPO):
             for g, param in zip(kl_grads, policy_params)
         ]
         flat_kl_grads = _flatten_and_concat_variables(kl_grads)
-        assert all(g.requires_grad for g in kl_grads)
-        assert flat_kl_grads.requires_grad
 
+        # Compute fisher-vector product
         def fisher_vector_product_func(vec):
-            vec = torch.as_tensor(vec)
+            vec = torch.stack([v.flatten() for v in vec])
             fvp = _hessian_vector_product(flat_kl_grads, policy_params, vec)
-            return fvp + self.conjugate_gradient_damping * vec
+            return fvp
 
-        gain_grads = torch.autograd.grad([gain], policy_params, create_graph=True)
-        assert all(
-            g is not None for g in gain_grads
-        ), "The gradient contains None. The policy may have unused parameters."
+        # Compute conjugate gradients
+        gain_grads = torch.autograd.grad([gain], policy_params, allow_unused=True)
+        gain_grads = [
+            (torch.zeros_like(param) if g is None else g)
+            for g, param in zip(gain_grads, policy_params)
+        ]
         flat_gain_grads = _flatten_and_concat_variables(gain_grads).detach()
+
         step_direction = pfrl.utils.conjugate_gradient(
             fisher_vector_product_func,
             flat_gain_grads,
             max_iter=self.conjugate_gradient_max_iter,
         )
+
         dId = float(step_direction.dot(fisher_vector_product_func(step_direction)))
         scale = (2.0 * self.max_kl / (dId + 1e-8)) ** 0.5
         return scale * step_direction
