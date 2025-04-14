@@ -11,7 +11,7 @@ from braid_env import BraidEnvironment
 from metrics import MetricsTracker, MetricsEvaluationHook, MetricsStepHook
 from reformer_networks import create_reformer_policy, create_reformer_vf
 from feed_forward_networks import create_ffn_policy, create_ffn_vf, initialize_ffn
-
+from trpo import MyTRPO as TRPO
 
 def parse_args():
     """Parse command line arguments."""
@@ -122,17 +122,6 @@ def parse_args():
     return args
 
 
-def patch_backward_for_unused():
-    original_backward = torch.autograd.grad
-
-    @functools.wraps(original_backward)
-    def backward_wrapper(*args, **kwargs):
-        kwargs['allow_unused'] = True
-        return original_backward(*args, **kwargs)
-
-    torch.autograd.grad = backward_wrapper
-
-
 def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=100000,
                       eval_n_runs=100, demo=False, load="", load_pretrained=False,
                       trpo_update_interval=5000, log_level=logging.INFO,
@@ -235,9 +224,8 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
     # an Optimizer. Only the value function needs it.
     vf_opt = torch.optim.Adam(vf.parameters())
 
-    patch_backward_for_unused()
     # Hyperparameters in http://arxiv.org/abs/1709.06560
-    agent = pfrl.agents.TRPO(
+    agent = TRPO(
         policy=policy,
         vf=vf,
         vf_optimizer=vf_opt,
