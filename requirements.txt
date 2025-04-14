@@ -33,3 +33,4 @@ colabcode~=0.3.0
 pfrl~=0.4.0
 pandas~=2.2.3
 seaborn~=0.13.2
+transformers~=4.51.2

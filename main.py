@@ -1,6 +1,4 @@
 import torch
-from torch import nn
-
 import argparse
 import logging
 import os.path as os_pth
@@ -10,9 +8,12 @@ import pfrl
 
 from braid_env import BraidEnvironment
 from metrics import MetricsTracker, MetricsEvaluationHook, MetricsStepHook
+from reformer_networks import create_reformer_policy, create_reformer_vf
+from feed_forward_networks import create_ffn_policy, create_ffn_vf, initialize_ffn
 
 
 def parse_args():
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--gpu", type=int, default=-1, help="GPU device ID, 0 for GPU, -1 to use CPUs only."
@@ -90,24 +91,44 @@ def parse_args():
         default=20,
         help="Maximum steps in generation.",
     )
+    parser.add_argument(
+        "--use-reformer",
+        action="store_true",
+        default=True,
+        help="Use Reformer networks instead of regular FFN",
+    )
+    parser.add_argument(
+        "--reformer-layers",
+        type=int,
+        default=2,
+        help="Number of Reformer layers",
+    )
+    parser.add_argument(
+        "--reformer-heads",
+        type=int,
+        default=4,
+        help="Number of attention heads in Reformer",
+    )
+    parser.add_argument(
+        "--reformer-dim",
+        type=int,
+        default=64,
+        help="Hidden dimension for Reformer",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=args.log_level)
     return args
 
 
-def ortho_init(layer, gain):
-    nn.init.orthogonal_(layer.weight, gain=gain)
-    nn.init.zeros_(layer.bias)
-
-
 def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=100000,
-        eval_n_runs=100, demo=False, load="", load_pretrained=False,
-        trpo_update_interval=5000, log_level=logging.INFO,
-        current_braid_length=20, target_braid_length=40,
-        max_steps_for_braid=100, max_steps_in_generation=20,
-        ):
-    """Run the training or demo process with the given parameters.
+                      eval_n_runs=100, demo=False, load="", load_pretrained=False,
+                      trpo_update_interval=5000, log_level=logging.INFO,
+                      current_braid_length=20, target_braid_length=40,
+                      max_steps_for_braid=100, max_steps_in_generation=20,
+                      use_reformer=True, reformer_layers=2, reformer_heads=4, reformer_dim=64
+                      ):
+    """Run the training or demo process.
 
     Args:
         seed (int): Random seed
@@ -125,6 +146,10 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         target_braid_length (int): Target braid length
         max_steps_for_braid (int): Maximum steps for braid
         max_steps_in_generation (int): Maximum steps in generation
+        use_reformer (bool): Whether to use Reformer networks
+        reformer_layers (int): Number of Reformer layers
+        reformer_heads (int): Number of attention heads in Reformer
+        reformer_dim (int): Hidden dimension for Reformer
     """
     # Create a dictionary of arguments for compatibility with existing code
     args = {
@@ -140,12 +165,17 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         "trpo_update_interval": trpo_update_interval,
         "log_level": log_level,
         "current_braid_length": current_braid_length,
-        "target_braid_length": target_braid_length, # target should be longer than current,
+        "target_braid_length": target_braid_length,
         "max_steps_for_braid": max_steps_for_braid,
         "max_steps_in_generation": max_steps_in_generation,
+        "use_reformer": use_reformer,
+        "reformer_layers": reformer_layers,
+        "reformer_heads": reformer_heads,
+        "reformer_dim": reformer_dim,
     }
 
-    assert args["current_braid_length"] <= args["target_braid_length"], "Current braid length should be less than or equal to target braid length."
+    assert args["current_braid_length"] <= args[
+        "target_braid_length"], "Current braid length should be less than or equal to target braid length."
 
     # Set up logging
     logging.basicConfig(level=args["log_level"])
@@ -173,29 +203,21 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         obs_size, clip_threshold=5
     )
 
-    policy = torch.nn.Sequential(
-        nn.Linear(obs_size, 64),
-        nn.Tanh(),
-        nn.Linear(64, 64),
-        nn.Tanh(),
-        nn.Linear(64, action_size),
-        pfrl.policies.SoftmaxCategoricalHead(),
-    )
+    # Create networks based on configuration
+    if args["use_reformer"]:
+        print("Using Reformer networks")
+        policy = create_reformer_policy(obs_size, action_size)
+        vf = create_reformer_vf(obs_size)
 
-    vf = torch.nn.Sequential(
-        nn.Linear(obs_size, 64),
-        nn.Tanh(),
-        nn.Linear(64, 64),
-        nn.Tanh(),
-        nn.Linear(64, 1),
-    )
-
-    ortho_init(policy[0], gain=1)
-    ortho_init(policy[2], gain=1)
-    ortho_init(policy[4], gain=1e-2)
-    ortho_init(vf[0], gain=1)
-    ortho_init(vf[2], gain=1)
-    ortho_init(vf[4], gain=1e-2)
+        # # Initialize the networks
+        # initialize_reformer_network(policy.policy_net)  # Initialize the Reformer part of the policy
+        # initialize_reformer_network(vf)
+    else:
+        print("Using regular feed-forward networks")
+        # Original FFN implementation
+        policy = create_ffn_policy(obs_size, action_size)
+        vf = create_ffn_vf(obs_size)
+        initialize_ffn(policy, vf)
 
     # TRPO's policy is optimized via CG and line search, so it doesn't require
     # an Optimizer. Only the value function needs it.
