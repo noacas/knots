@@ -27,6 +27,10 @@ class MyTRPO(TRPO):
         ]
         flat_kl_grads = _flatten_and_concat_variables(kl_grads)
 
+        # Clear intermediate tensors
+        del kl_grads
+        torch.cuda.empty_cache()
+
         # Compute fisher-vector product with memory optimizations
         def fisher_vector_product_func(vec):
             # Clear CUDA cache before heavy computation
@@ -34,10 +38,6 @@ class MyTRPO(TRPO):
 
             if vec.device.type == 'cuda':
                 vec = vec.detach()  # Detach to avoid building computation history
-
-            # Clear intermediate tensors
-            del kl_grads
-            torch.cuda.empty_cache()
 
             # Compute HVP with memory management
             try:
