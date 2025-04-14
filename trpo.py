@@ -1,7 +1,6 @@
 import pfrl
 import torch
 from pfrl.agents.trpo import TRPO, _hessian_vector_product, _flatten_and_concat_variables
-from pfrl.utils import conjugate_gradient
 
 
 class MyTRPO(TRPO):
