@@ -123,14 +123,14 @@ def parse_args():
 
 
 def patch_backward_for_unused():
-    original_backward = torch.autograd.backward
+    original_backward = torch.autograd.grad
 
     @functools.wraps(original_backward)
     def backward_wrapper(*args, **kwargs):
         kwargs['allow_unused'] = True
         return original_backward(*args, **kwargs)
 
-    torch.autograd.backward = backward_wrapper
+    torch.autograd.grad = backward_wrapper
 
 
 def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=100000,
