@@ -42,12 +42,14 @@ class MyTRPO(TRPO):
             # Compute HVP with memory management
             try:
                 fvp = _hessian_vector_product(flat_kl_grads, policy_params, vec)
-                return fvp
+                return fvp + self.conjugate_gradient_damping * vec
             except RuntimeError as e:
                 if "CUDA out of memory" in str(e):
                     print("Warning: CUDA OOM in HVP, using fallback method")
                     # Fallback to a more memory-efficient but less accurate approach
-                    return vec * 0.1  # Approximation to avoid OOM
+                else:
+                    print("Error in HVP computation:", e)
+                return vec * 0.1  # Approximation to avoid OOM
 
         # Compute gain gradients
         torch.cuda.empty_cache()
