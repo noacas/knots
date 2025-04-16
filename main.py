@@ -240,7 +240,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         max_kl=0.01,
         conjugate_gradient_max_iter=20,
         conjugate_gradient_damping=1e-1,
-        gamma=0.995,
+        gamma=0.85, # Discount factor, would want to tune this, intuitively set to 0.85 for success to happen in 15 steps roughly
         lambd=0.97,
         vf_epochs=5,
         entropy_coef=0.01,
