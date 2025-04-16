@@ -35,11 +35,19 @@ def create_success_rate_df(df):
 
 
 class MetricsTracker:
-    def __init__(self, save_dir):
+    def __init__(self, save_dir, save_interval=10000):
         self.metrics = defaultdict(list)
         self.success_metrics = defaultdict(list)
         self.save_dir = save_dir
+        self.last_save_step = 0
+        self.save_interval = save_interval
         os.makedirs(save_dir, exist_ok=True)
+
+    def should_save(self, step):
+        if step - self.last_save_step >= self.save_interval:
+            self.last_save_step = step
+            return True
+        return False
 
     def add_metric(self, name, value, step):
         self.metrics[name].append((step, value))
@@ -60,7 +68,8 @@ class MetricsTracker:
         metrics_df.to_csv(os.path.join(self.save_dir, f'{file_name}.csv'), index=False)
         return metrics_df
 
-    def plot_learning_curves(self):
+    def plot_learning_curves(self, step=0):
+        self.last_save_step = step
         metrics_df = self.save_metrics(self.metrics, 'metrics')
         success_metrics_df = self.save_metrics(self.success_metrics, 'success_metrics')
 
@@ -131,3 +140,6 @@ class MetricsEvaluationHook(EvaluationHook):
         # Add metrics from evaluation
         self.metrics_tracker.add_metric('eval_mean_reward', eval_stats['mean'], step)
         self.metrics_tracker.add_metric('eval_median_reward', eval_stats['median'], step)
+
+        if self.metrics_tracker.should_save(step):
+            self.metrics_tracker.plot_learning_curves(step)
