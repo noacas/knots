@@ -172,4 +172,4 @@ class BraidEnvironment:
     def calculate_reward(self) -> Tuple[float, float]:
         # subsequence_similarity returns 0 if sequences are identical, 1 if no common subsequences
         similarity =  subsequence_similarity(self.current_braid, self.target_braid)
-        return similarity * -1000 - self.steps_taken, similarity
+        return similarity * -1000, similarity
