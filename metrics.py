@@ -24,8 +24,8 @@ def create_success_rate_df(df):
     }, inplace=True)
 
     # Add rolling average to smooth out the data (optional)
-    if len(success_by_step) >= 100:
-        success_by_step['avg_success_rate'] = success_by_step['success_rate'].rolling(window=100, center=False).mean()
+    if len(success_by_step) >= 1000:
+        success_by_step['avg_success_rate'] = success_by_step['success_rate'].rolling(window=1000, center=False).mean()
     else:
         # Add an empty column if not enough data points
         success_by_step['avg_success_rate'] = None
@@ -105,7 +105,7 @@ class MetricsTracker:
         # plot success after how many moves
         plt.figure(figsize=(12, 8))
         success_after_moves = success_metrics_df[success_metrics_df['success_after_moves'].notnull()]
-        plt.plot(success_after_moves['step'], success_after_moves['success_after_moves'], label=col)
+        plt.plot(success_after_moves['step'], success_after_moves['success_after_moves'], label='success_after_moves')
         plt.title('Learning Curves - Success After Moves')
         plt.xlabel('Steps')
         plt.ylabel('Success After Moves')
