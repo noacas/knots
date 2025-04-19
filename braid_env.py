@@ -6,13 +6,14 @@ import torch
 from braid_relation import shift_left, shift_right, braid_relation1, braid_relation2
 from markov_move import conjugation_markov_move
 from random_knot import two_random_equivalent_knots
+from reward_reshaper import RewardShaper
 from smart_collapse import smart_collapse
 from subsequence_similarity import subsequence_similarity
 
 
 class BraidEnvironment:
     def __init__(self, n_braids_max=20, n_letters_max=40, max_steps=100,
-                 max_steps_in_generation=30, normalize=True, temperature=1.0,
+                 max_steps_in_generation=30,
                  should_randomize_cur_and_target=True):
         self.max_steps = max_steps
         self.max_steps_in_generation = max_steps_in_generation
@@ -23,14 +24,11 @@ class BraidEnvironment:
         self.current_braid = torch.tensor([], dtype=torch.float)
         self.start_braid = torch.tensor([], dtype=torch.float)
         self.target_braid = torch.tensor([], dtype=torch.float)
-        #self.chosen_moves = torch.tensor([], dtype=torch.float)
-        #self.intermediate_braids = torch.zeros(self.max_steps, self.n_letters_max, dtype=torch.float)
         self.steps_taken = 0
         self.success = False
         self.done = False
 
-        #self.normalize = normalize
-        #self.temperature = max(0.1, temperature)
+        self.reward_shaper = RewardShaper()
 
         if should_randomize_cur_and_target:
             self.reset()
@@ -41,12 +39,11 @@ class BraidEnvironment:
             n_max=self.n_braids_max, n_max_second=self.n_letters_max, n_moves=self.max_steps_in_generation
         )
         self.start_braid = self.current_braid.clone()
-        #self.chosen_moves = torch.tensor([], dtype=torch.float)
-        #self.intermediate_braids = torch.zeros(self.max_steps, self.n_letters_max, dtype=torch.float)
         self.steps_taken = 0
         self.success = False
         self.done = False
         state = self.get_state()
+        self.reward_shaper.reset(self.max_steps)
         return state
 
     def get_padded_braid(self, braid: torch.Tensor) -> torch.Tensor:
@@ -59,31 +56,6 @@ class BraidEnvironment:
         # Combine current braid and target braid as state, each is padded to max length with zeros
         cur, tar = self.get_padded_braids()
         return torch.cat([cur, tar])
-
-    def get_env_from_state(self, env_state: torch.Tensor) -> "BraidEnvironment":
-        new_env = BraidEnvironment(
-            n_braids_max=self.n_braids_max,
-            n_letters_max=self.n_letters_max,
-            max_steps=self.max_steps,
-            max_steps_in_generation=self.max_steps_in_generation,
-            #normalize=self.normalize,
-            #temperature=self.temperature,
-            should_randomize_cur_and_target=False,
-        )
-
-        def trim_zeros_tensor(tensor):
-            nonzero_indices = torch.nonzero(tensor, as_tuple=True)[0]
-            if nonzero_indices.numel() == 0:
-                return torch.tensor([], dtype=tensor.dtype)  # Return empty tensor if all zeros # device=tensor.device?
-            return tensor[nonzero_indices[0]: nonzero_indices[-1] + 1]
-
-        new_env.current_braid = trim_zeros_tensor(env_state[:self.n_letters_max])
-        new_env.target_braid = trim_zeros_tensor(env_state[self.n_letters_max:])
-        new_env.start_braid = self.current_braid.clone()
-        #new_env.chosen_moves = torch.tensor([], dtype=torch.float)
-        #new_env.intermediate_braids = torch.zeros(self.max_steps, self.n_letters_max, dtype=torch.float)
-
-        return new_env
 
     def get_model_dim(self) -> int:
         return self.n_letters_max * 2  # length of the state (2 padded braids)
@@ -110,8 +82,6 @@ class BraidEnvironment:
         self.steps_taken += 1
         should_punish = False
 
-        #self.chosen_moves = torch.cat([self.chosen_moves, torch.tensor([action], dtype=torch.float)])
-
         if action == 0:
             self.current_braid = smart_collapse(self.current_braid)
         elif action < self.n_braids_max:
@@ -135,15 +105,6 @@ class BraidEnvironment:
         else:
             raise ValueError(f"Invalid action: {action}")
 
-        # Calculate reward based on similarity to target
-        if should_punish:
-            # if the action was invalid, apply a punishment
-            reward = self.punishment_for_illegal_action
-            similarity = -1
-        else:
-            reward, similarity = self.calculate_reward()
-
-        #self.intermediate_braids[self.steps_taken-1] = self.get_padded_braid(self.current_braid)
 
         if len(self.current_braid) >= self.n_letters_max:
             # if the braid is at its maximum length, the episode is over
@@ -155,6 +116,13 @@ class BraidEnvironment:
             logging.info("Found transformation! after %d steps", self.steps_taken)
         self.done = self.steps_taken >= self.max_steps
         info = {"needs_reset": self.steps_taken >= self.max_steps}
+
+        # Calculate reward based on similarity to target
+        if should_punish:
+            # if the action was invalid, apply a punishment
+            reward = self.punishment_for_illegal_action
+        else:
+            reward, similarity = self.calculate_reward(self.current_braid, self.target_braid, self.success, self.done)
 
         return self.get_state(), reward, self.success, info
 
@@ -169,7 +137,12 @@ class BraidEnvironment:
         combined_diff = (different_elements * severity) + orientation_mismatch
         return combined_diff
 
-    def calculate_reward(self) -> Tuple[float, float]:
+    def calculate_reward(self, current_braid, target_braid, success, done) -> Tuple[float, float]:
         # subsequence_similarity returns 0 if sequences are identical, 1 if no common subsequences
-        similarity =  subsequence_similarity(self.current_braid, self.target_braid)
-        return similarity * -1000, similarity
+        similarity =  subsequence_similarity(current_braid, target_braid)
+        reward = similarity * -1000
+        shaped_reward = self.reward_shaper.shape_reward(reward=reward,
+                                                        current_braid=current_braid,
+                                                        target_braid=target_braid,
+                                                        done=done, success=success)
+        return shaped_reward, similarity

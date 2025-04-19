@@ -3,7 +3,6 @@ import argparse
 import logging
 import os.path as os_pth
 import json
-import functools
 
 import pfrl
 
@@ -192,6 +191,17 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
     evaluation_hook = MetricsEvaluationHook(metrics_tracker, args["outdir"])
     step_hook = MetricsStepHook(metrics_tracker)
 
+    # curriculum_manager = CurriculumManager(
+    #     initial_braid_length=args["initial_braid_length"],
+    #     max_braid_length=args["max_braid_length"],
+    #     initial_steps_in_generation=args["initial_steps_in_generation"],
+    #     max_steps_in_generation=args["max_steps_in_generation"],
+    #     success_threshold=args["success_threshold"],
+    # )
+    # current_params = curriculum_manager.get_current_parameters()
+    # current_braid_length = current_params["current_braid_length"]
+    # current_steps_in_generation = current_params["max_steps_in_generation"]
+
     env = BraidEnvironment(
         n_braids_max=args["current_braid_length"],
         n_letters_max=args["target_braid_length"],
@@ -240,7 +250,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         max_kl=0.01,
         conjugate_gradient_max_iter=20,
         conjugate_gradient_damping=1e-1,
-        gamma=0.85, # Discount factor, would want to tune this, intuitively set to 0.85 for success to happen in 15 steps roughly
+        gamma=0.95,
         lambd=0.97,
         vf_epochs=5,
         entropy_coef=0.01,
