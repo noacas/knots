@@ -16,7 +16,8 @@ def apply_random_markov_move_and_relations(braid: torch.Tensor, n_moves: int,
         # Apply braid relation1 at random position
         #start = random.randint(0, len(braid)-1)
         #braid = braid_relation1_on_entire_braid(braid, start)
-        braid = braid_relation1(braid)
+        if random.randint(0, 1):
+            braid = braid_relation1(braid)
         collapsed_braid = smart_collapse(braid)
         if len(collapsed_braid) <= max_length:
             last_valid_braid = collapsed_braid
