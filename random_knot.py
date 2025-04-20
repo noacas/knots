@@ -4,7 +4,7 @@ import torch
 from knotify import knotify
 from markov_move import random_markov_move
 from smart_collapse import smart_collapse
-from braid_relation import braid_relation1_on_entire_braid
+from braid_relation import braid_relation1_on_entire_braid, braid_relation1
 
 
 def apply_random_markov_move_and_relations(braid: torch.Tensor, n_moves: int,
@@ -14,8 +14,9 @@ def apply_random_markov_move_and_relations(braid: torch.Tensor, n_moves: int,
     for _ in range(n_moves):
         braid = random_markov_move(braid, with_new_strand)
         # Apply braid relation1 at random position
-        start = random.randint(0, len(braid)-1)
-        braid = braid_relation1_on_entire_braid(braid, start)
+        #start = random.randint(0, len(braid)-1)
+        #braid = braid_relation1_on_entire_braid(braid, start)
+        braid = braid_relation1(braid)
         collapsed_braid = smart_collapse(braid)
         if len(collapsed_braid) <= max_length:
             last_valid_braid = collapsed_braid
@@ -68,7 +69,7 @@ def two_random_equivalent_knots(n_max: int, n_max_second: int, n_moves: int) -> 
 
     # Apply random moves and relations to knot1 to get knot2
     knot2 = knot1.clone()
-    knot2 = apply_random_markov_move_and_relations(knot2, n_moves, n_max_second)
+    knot2 = apply_random_markov_move_and_relations(knot2, n_moves, n_max_second, with_new_strand=False)
 
     return knot1, knot2
 

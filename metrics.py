@@ -10,7 +10,7 @@ from pfrl.experiments.hooks import StepHook
 # Create a metrics tracker class
 def create_success_rate_df(df):
     # Group by step and calculate success metrics
-    df["rounded_step"] = df["step"].round(-2)
+    df["rounded_step"] = df["step"].round(-3)
     success_by_step = df.groupby('rounded_step')['success'].agg(['count', 'sum']).reset_index()
 
     # Calculate success rate
