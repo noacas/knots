@@ -2,25 +2,48 @@ import random
 import torch
 
 from knotify import knotify
-from markov_move import random_markov_move
+from markov_move import random_markov_move, random_conjugation_markov_move
 from smart_collapse import smart_collapse
-from braid_relation import braid_relation1_on_entire_braid, braid_relation1
+from braid_relation import braid_relation1_on_entire_braid, braid_relation1, braid_relation2
 
 
 def apply_random_markov_move_and_relations(braid: torch.Tensor, n_moves: int,
-                                           max_length: int, with_new_strand: bool = True) -> torch.Tensor:
+                                           max_length: int) -> torch.Tensor:
     last_valid_braid = braid
     # Apply random moves and relations
     for _ in range(n_moves):
-        braid = random_markov_move(braid, with_new_strand)
+        braid = random_markov_move(braid, with_new_strand=True)
         # Apply braid relation1 at random position
-        #start = random.randint(0, len(braid)-1)
-        #braid = braid_relation1_on_entire_braid(braid, start)
-        if random.randint(0, 1):
-            braid = braid_relation1(braid)
+        start = random.randint(0, len(braid)-1)
+        braid = braid_relation1_on_entire_braid(braid, start)
         collapsed_braid = smart_collapse(braid)
         if len(collapsed_braid) <= max_length:
             last_valid_braid = collapsed_braid
+    return last_valid_braid
+
+
+def get_equivalent_braid(braid: torch.Tensor, n_moves: int, max_length: int) -> torch.Tensor:
+    """
+    Applies a random braid relation and markov moves to get a braid equivalent to the input braid.
+    """
+    last_valid_braid = braid
+    # Apply random moves and relations
+    for _ in range(n_moves):
+        action = random.randint(0, 3)
+        if action == 0:
+            # Apply conjugation markov move
+            braid = random_conjugation_markov_move(braid, j=0)
+        elif action == 1:
+            braid = braid_relation1(braid)
+        elif action == 2:
+            braid = braid_relation2(braid)
+        else:
+            braid = smart_collapse(braid)
+        if len(braid) <= max_length:
+            last_valid_braid = braid
+        else:
+            # If the braid exceeds max length, revert to last valid braid
+            braid = last_valid_braid
     return last_valid_braid
 
 
@@ -56,7 +79,7 @@ def random_knot(n_letters: int, n_strands: int, n_moves: int) -> torch.Tensor:
         braid = knotify(braid)
 
         if len(braid):
-            braid = apply_random_markov_move_and_relations(braid, n_moves, n_letters, with_new_strand=True)
+            braid = apply_random_markov_move_and_relations(braid, n_moves, n_letters)
 
     return braid
 
@@ -70,7 +93,7 @@ def two_random_equivalent_knots(n_max: int, n_max_second: int, n_moves: int) -> 
 
     # Apply random moves and relations to knot1 to get knot2
     knot2 = knot1.clone()
-    knot2 = apply_random_markov_move_and_relations(knot2, n_moves, n_max_second, with_new_strand=False)
+    knot2 = get_equivalent_braid(knot2, n_moves, n_max_second)
 
     return knot1, knot2
 
