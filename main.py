@@ -259,8 +259,6 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
     if args["load"] or args.get("load_pretrained", False):
         agent.load(args["load"])
 
-    agent = torch.compile(agent, mode="max-autotune")
-
     if args["demo"]:
         eval_stats = pfrl.experiments.eval_performance(
             env=env,
