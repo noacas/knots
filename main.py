@@ -15,7 +15,6 @@ from trpo import MyTRPO as TRPO
 # Configure PyTorch for memory efficiency
 torch.backends.cuda.matmul.allow_tf32 = True  # Use TF32 precision
 torch.backends.cudnn.benchmark = True  # Use cuDNN autotuner
-torch._functorch.config.donated_buffer = False
 torch.cuda.empty_cache()  # Clear any existing cached memory
 
 def parse_args():

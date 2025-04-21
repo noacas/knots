@@ -127,8 +127,9 @@ def create_reformer_policy(obs_size: int, action_size: int, reformer_depth: int,
         pooling=pooling,  # How to pool sequence into a single representation
     )
     policy = PolicyWrapper(reformer, pfrl.policies.SoftmaxCategoricalHead())
-    compiled_policy = torch.compile(policy, mode='max-autotune')
-    return compiled_policy
+    # compiled_policy = torch.compile(policy, mode='max-autotune')
+    # return compiled_policy
+    return policy
 
 
 def create_reformer_vf(obs_size: int, reformer_depth: int, reformer_heads: int, reformer_dim: int, pooling='mean') -> nn.Module:
@@ -148,5 +149,5 @@ def create_reformer_vf(obs_size: int, reformer_depth: int, reformer_heads: int, 
         output_dim=1,
         pooling=pooling,  # How to pool sequence into a single representation
     )
-    compiled_vf = torch.compile(vf, mode='max-autotune')
-    return compiled_vf
+    #
+    return vf

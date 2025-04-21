@@ -7,10 +7,6 @@ from pfrl.utils import conjugate_gradient
 
 class MyTRPO(TRPO):
 
-    def act(self, obs):
-        torch.compiler.cudagraph_mark_step_begin()
-        return super().act(obs)
-
     def _compute_kl_constrained_step(self, action_distrib, action_distrib_old, gain):
         # Clear memory before starting the computation
         gc.collect()
