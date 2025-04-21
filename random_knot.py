@@ -32,7 +32,7 @@ def get_equivalent_braid(braid: torch.Tensor, n_moves: int, max_length: int) -> 
         action = random.randint(0, 3)
         if action == 0:
             # Apply conjugation markov move
-            braid = random_conjugation_markov_move(braid, j=0)
+            braid = random_conjugation_markov_move(braid, k=0)
         elif action == 1:
             braid = braid_relation1(braid)
         elif action == 2:

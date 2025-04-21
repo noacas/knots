@@ -27,13 +27,13 @@ def conjugation_markov_move(braid: torch.Tensor, j: int, k: int) -> torch.Tensor
     return torch.cat((term1, braid, term2), dim=0)
 
 
-def random_conjugation_markov_move(braid: torch.Tensor, j: Optional[int] = None) -> torch.Tensor:
+def random_conjugation_markov_move(braid: torch.Tensor, k: Optional[int] = None) -> torch.Tensor:
     # Update braid: braid ← [(−1)^k j] + braid + [(−1)^(k+1) j]
     # Random index between 1 and max(abs(braid)) for j if not provided
-    if j is None:
-        j = random.randint(1, max_abs_braid(braid))
-    # Random choice between 0 and 1 for k
-    k = random.randint(0, 1)
+    j = random.randint(1, max_abs_braid(braid))
+    if k is None:
+        # Random choice between 0 and 1 for k
+        k = random.randint(0, 1)
     return conjugation_markov_move(braid, j, k)
 
 
