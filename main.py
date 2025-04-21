@@ -103,10 +103,10 @@ def parse_args():
         help="Use Reformer networks instead of regular FFN",
     )
     parser.add_argument(
-        "--reformer-layers",
+        "--reformer-depth",
         type=int,
         default=2,
-        help="Number of Reformer layers",
+        help="Depth of Reformer networks",
     )
     parser.add_argument(
         "--reformer-heads",
@@ -131,7 +131,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
                       trpo_update_interval=5000, log_level=logging.INFO,
                       current_braid_length=20, target_braid_length=40,
                       max_steps_for_braid=100, max_steps_in_generation=20,
-                      use_reformer=True, reformer_layers=2, reformer_heads=4, reformer_dim=64
+                      use_reformer=True, reformer_depth=2, reformer_heads=4, reformer_dim=64
                       ):
     """Run the training or demo process.
 
@@ -152,7 +152,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         max_steps_for_braid (int): Maximum steps for braid
         max_steps_in_generation (int): Maximum steps in generation
         use_reformer (bool): Whether to use Reformer networks
-        reformer_layers (int): Number of Reformer layers
+        reformer_depth (int): Depth of Reformer networks
         reformer_heads (int): Number of attention heads in Reformer
         reformer_dim (int): Hidden dimension for Reformer
     """
@@ -174,7 +174,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         "max_steps_for_braid": max_steps_for_braid,
         "max_steps_in_generation": max_steps_in_generation,
         "use_reformer": use_reformer,
-        "reformer_layers": reformer_layers,
+        "reformer_depth": reformer_depth,
         "reformer_heads": reformer_heads,
         "reformer_dim": reformer_dim,
     }
@@ -222,8 +222,8 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
     # Create networks based on configuration
     if args["use_reformer"]:
         print("Using Reformer networks")
-        policy = create_reformer_policy(obs_size, action_size)
-        vf = create_reformer_vf(obs_size)
+        policy = create_reformer_policy(obs_size, action_size, reformer_depth, reformer_heads, reformer_dim)
+        vf = create_reformer_vf(obs_size, reformer_depth, reformer_heads, reformer_dim)
 
         # # Initialize the networks
         # initialize_reformer_network(policy.policy_net)  # Initialize the Reformer part of the policy
@@ -258,6 +258,8 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
 
     if args["load"] or args.get("load_pretrained", False):
         agent.load(args["load"])
+
+    agent = torch.compile(agent, mode="max-autotune")
 
     if args["demo"]:
         eval_stats = pfrl.experiments.eval_performance(

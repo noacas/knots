@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import pfrl
 from reformer_pytorch import Reformer
@@ -99,22 +100,22 @@ class PolicyWrapper(nn.Module):
         return action_probs
 
 
-def create_reformer_policy(obs_size: int, action_size: int, pooling='mean') -> nn.Module:
+def create_reformer_policy(obs_size: int, action_size: int, reformer_depth: int, reformer_heads: int, reformer_dim: int, pooling='mean') -> nn.Module:
     """Create a policy network using Reformer architecture.
 
     Args:
         obs_size: Size of the observation (braid element count)
         action_size: Number of possible actions
+        reformer_depth: Depth of the Reformer model
+        reformer_heads: Number of attention heads in the Reformer
+        reformer_dim: Dimension of the Reformer model
         pooling: Method to aggregate sequence ('mean', 'max', 'first', or 'last')
     """
-    # For braids, we want to set the dimension to a reasonable embedding size
-    embedding_dim = 16
-
     reformer = ReformerKnots(
-        dim=embedding_dim,  # Dimension of each token embedding
-        depth=6,
+        dim=reformer_dim,
+        depth=reformer_depth,
         max_seq_len=obs_size,  # The maximum braid length
-        heads=8,
+        heads=reformer_heads,
         bucket_size=min(64, obs_size // 2 if obs_size > 4 else obs_size),
         n_hashes=4,
         ff_chunks=10,
@@ -125,19 +126,18 @@ def create_reformer_policy(obs_size: int, action_size: int, pooling='mean') -> n
         output_dim=action_size,
         pooling=pooling,  # How to pool sequence into a single representation
     )
-    return PolicyWrapper(reformer, pfrl.policies.SoftmaxCategoricalHead())
+    policy = PolicyWrapper(reformer, pfrl.policies.SoftmaxCategoricalHead())
+    compiled_policy = torch.compile(policy, mode='max-autotune')
+    return compiled_policy
 
 
-def create_reformer_vf(obs_size: int, pooling='mean') -> nn.Module:
+def create_reformer_vf(obs_size: int, reformer_depth: int, reformer_heads: int, reformer_dim: int, pooling='mean') -> nn.Module:
     """Create a value function network using Reformer architecture."""
-    # Embedding dimension for each braid element
-    embedding_dim = 16
-
-    return ReformerKnots(
-        dim=embedding_dim,
-        depth=6,
+    vf = ReformerKnots(
+        dim=reformer_dim,
+        depth=reformer_depth,
         max_seq_len=obs_size,
-        heads=8,
+        heads=reformer_heads,
         bucket_size=min(64, obs_size // 2 if obs_size > 4 else obs_size),
         n_hashes=4,
         ff_chunks=10,
@@ -148,3 +148,5 @@ def create_reformer_vf(obs_size: int, pooling='mean') -> nn.Module:
         output_dim=1,
         pooling=pooling,  # How to pool sequence into a single representation
     )
+    compiled_vf = torch.compile(vf, mode='max-autotune')
+    return compiled_vf

@@ -24,7 +24,7 @@ def create_success_rate_df(df):
     }, inplace=True)
 
     # Add rolling average to smooth out the data (optional)
-    if len(success_by_step) >= 1000:
+    if len(success_by_step) >= 10:
         success_by_step['avg_success_rate'] = success_by_step['success_rate'].rolling(window=1000, center=False).mean()
     else:
         # Add an empty column if not enough data points
@@ -35,7 +35,7 @@ def create_success_rate_df(df):
 
 
 class MetricsTracker:
-    def __init__(self, save_dir, save_interval=10000):
+    def __init__(self, save_dir, save_interval=1000):
         self.metrics = defaultdict(list)
         self.success_metrics = defaultdict(list)
         self.save_dir = save_dir
