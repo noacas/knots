@@ -234,7 +234,6 @@ class EpisodeSuccessHook(pfrl.experiments.StepHook):
                     # Reset the environment with new parameters
                     self.curriculum_manager.reset_environment_for_curriculum(env)
                     logging.info(
-                        f"Curriculum difficulty increased: braid_length={self.curriculum_manager.current_braid_length}, "
                         f"steps_in_generation={self.curriculum_manager.current_steps_in_generation}")
 
             # Store episode in experience buffer if available
