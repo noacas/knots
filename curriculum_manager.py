@@ -122,10 +122,11 @@ class CurriculumManager:
                 )
                 self.current_steps_in_generation = new_steps
                 self._record_curriculum_state()
-                return True
 
-            # Plot curriculum history
-            self.plot_curriculum_history()
+                # Plot curriculum history
+                self.plot_curriculum_history()
+
+                return True
 
         return False
 
