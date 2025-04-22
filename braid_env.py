@@ -82,6 +82,8 @@ class BraidEnvironment:
         self.steps_taken += 1
         should_punish = False
 
+        previous_braid = self.current_braid.clone().to(device=self.current_braid.device)
+
         if action == 0:
             self.current_braid = smart_collapse(self.current_braid)
         elif action < self.n_braids_max:
@@ -122,27 +124,12 @@ class BraidEnvironment:
             # if the action was invalid, apply a punishment
             reward = self.punishment_for_illegal_action
         else:
-            reward, similarity = self.calculate_reward(self.current_braid, self.target_braid, self.success, self.done)
+            reward = self.calculate_reward(current_braid=previous_braid, next_braid=self.current_braid, target_braid=self.target_braid)
 
         return self.get_state(), reward, self.success, info
 
-    def braid_word_difference(self) -> torch.Tensor:
-
-        cur, tar = self.get_padded_braids()
-        different_elements = (cur != tar).float()
-        severity = (cur.abs() - tar.abs()).abs().float()
-        same_abs = (cur.abs() == tar.abs()).float()
-        diff_sign = (torch.sign(cur) != torch.sign(tar)).float()
-        orientation_mismatch = same_abs * diff_sign * 0.5
-        combined_diff = (different_elements * severity) + orientation_mismatch
-        return combined_diff
-
-    def calculate_reward(self, current_braid, target_braid, success, done) -> Tuple[float, float]:
-        # subsequence_similarity returns 0 if sequences are identical, 1 if no common subsequences
-        similarity =  subsequence_similarity(current_braid, target_braid)
-        reward = similarity * -1000
-        shaped_reward = self.reward_shaper.shape_reward(reward=reward,
+    def calculate_reward(self, current_braid, next_braid, target_braid) -> float:
+        shaped_reward = self.reward_shaper.potential_based_reward(next_braid=next_braid,
                                                         current_braid=current_braid,
-                                                        target_braid=target_braid,
-                                                        done=done, success=success)
-        return shaped_reward, similarity
+                                                        target_braid=target_braid)
+        return shaped_reward
