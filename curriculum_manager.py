@@ -1,9 +1,15 @@
+import csv
 import logging
+import os
 
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 
+import pandas as pd
 import pfrl
+from matplotlib import pyplot as plt
+
+from braid_env import BraidEnvironment
 
 
 class CurriculumManager:
@@ -14,20 +20,17 @@ class CurriculumManager:
 
     def __init__(
             self,
-            initial_braid_length: int = 10,
-            max_braid_length: int = 40,
-            initial_steps_in_generation: int = 10,
-            max_steps_in_generation: int = 30,
-            success_threshold: float = 0.25,
+            initial_steps_in_generation: int = 2,
+            max_steps_in_generation: int = 10,
+            success_threshold: float = 0.5,
             evaluation_window: int = 100,
             increase_step_size: int = 2,
-            min_evaluations_before_increase: int = 5
+            min_evaluations_before_increase: int = 5,
+            save_dir: str = 'curriculum_data',
     ):
         """Initialize the curriculum manager.
 
         Args:
-            initial_braid_length: Starting braid length
-            max_braid_length: Maximum braid length to reach
             initial_steps_in_generation: Initial number of steps allowed in generation
             max_steps_in_generation: Maximum number of steps in generation
             success_threshold: Success rate required to increase difficulty
@@ -35,8 +38,6 @@ class CurriculumManager:
             increase_step_size: How much to increase parameters when advancing curriculum
             min_evaluations_before_increase: Minimum evaluations before allowing difficulty increase
         """
-        self.current_braid_length = initial_braid_length
-        self.max_braid_length = max_braid_length
         self.current_steps_in_generation = initial_steps_in_generation
         self.max_steps_in_generation = max_steps_in_generation
         self.success_threshold = success_threshold
@@ -49,13 +50,17 @@ class CurriculumManager:
         self.curriculum_history: List[Dict] = []
         self.evaluation_counter = 0
 
+        # Save curriculum state
+        self.save_dir = save_dir
+        self.last_save_step = 0
+        os.makedirs(save_dir, exist_ok=True)
+
         # Save initial state to history
         self._record_curriculum_state()
 
     def _record_curriculum_state(self):
         """Record the current curriculum state to history."""
         self.curriculum_history.append({
-            'braid_length': self.current_braid_length,
             'steps_in_generation': self.current_steps_in_generation,
             'success_rate': self.get_current_success_rate(),
             'evaluation_counter': self.evaluation_counter
@@ -119,29 +124,10 @@ class CurriculumManager:
                 self._record_curriculum_state()
                 return True
 
-            # If we've maxed out steps but can still increase braid length
-            elif self.current_braid_length < self.max_braid_length:
-                # Increase braid length
-                new_length = min(
-                    self.current_braid_length + self.increase_step_size,
-                    self.max_braid_length
-                )
-                self.current_braid_length = new_length
-                self._record_curriculum_state()
-                return True
+            # Plot curriculum history
+            self.plot_curriculum_history()
 
         return False
-
-    def get_current_parameters(self) -> Dict[str, int]:
-        """Get the current curriculum parameters.
-
-        Returns:
-            Dict with current braid length and steps in generation
-        """
-        return {
-            'current_braid_length': self.current_braid_length,
-            'max_steps_in_generation': self.current_steps_in_generation
-        }
 
     def reset_environment_for_curriculum(self, env) -> None:
         """Update environment parameters based on current curriculum stage.
@@ -149,24 +135,71 @@ class CurriculumManager:
         Args:
             env: The environment to update
         """
-        env.n_braids_max = self.current_braid_length
         env.max_steps_in_generation = self.current_steps_in_generation
 
-    def get_curriculum_progress(self) -> float:
-        """Calculate overall curriculum progress as percentage.
-
-        Returns:
-            Float between 0.0 and 1.0 representing progress through curriculum
+    def save_curriculum_data(self):
         """
-        # Calculate progress as average of both dimensions
-        braid_progress = (self.current_braid_length - 10) / (self.max_braid_length - 10)
-        steps_progress = (self.current_steps_in_generation - 10) / (self.max_steps_in_generation - 10)
+        Save curriculum history data to a CSV file.
+        """
+        with open(self.save_dir, 'w', newline='') as csvfile:
+            fieldnames = ['evaluation_counter', 'steps_in_generation', 'success_rate']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
-        # Clip between 0 and 1
-        braid_progress = max(0.0, min(1.0, braid_progress))
-        steps_progress = max(0.0, min(1.0, steps_progress))
+            writer.writeheader()
+            for entry in self.curriculum_history:
+                writer.writerow({
+                    'evaluation_counter': entry['evaluation_counter'],
+                    'steps_in_generation': entry['steps_in_generation'],
+                    'success_rate': entry['success_rate']
+                })
 
-        return (braid_progress + steps_progress) / 2.0
+    def plot_curriculum_history(self):
+        # Extract data from curriculum history
+        eval_counters = [entry['evaluation_counter'] for entry in self.curriculum_history]
+        steps_in_generation = [entry['steps_in_generation'] for entry in self.curriculum_history]
+        success_rates = [entry['success_rate'] for entry in self.curriculum_history]
+
+        # Create figure with two subplots
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+
+        # Plot Steps in Generation
+        ax1.plot(eval_counters, steps_in_generation, 'r-o', label='Steps in Generation')
+        ax1.set_ylabel('Steps in Generation')
+        ax1.set_title('Curriculum Learning Progress')
+        ax1.grid(True, alpha=0.3)
+        ax1.legend()
+
+        # Plot Success Rate
+        ax2.plot(eval_counters, success_rates, 'b-o', label='Success Rate')
+        ax2.set_xlabel('Evaluation Counter')
+        ax2.set_ylabel('Success Rate')
+        ax2.grid(True, alpha=0.3)
+        ax2.set_ylim(0, 1)
+        ax2.legend()
+
+        # Save figure
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.save_dir, 'curriculum_progress.png'), dpi=200)
+
+        # Create combined figure
+        plt.figure(figsize=(10, 6))
+        plt.plot(eval_counters, steps_in_generation, 'r-', label='Steps in Generation')
+        plt.plot(eval_counters, success_rates, 'b-', label='Success Rate')
+        plt.xlabel('Evaluation Counter')
+        plt.title('Curriculum Learning Progress (Combined)')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+
+        # Add second y-axis
+        ax = plt.gca()
+        ax2 = ax.twinx()
+        ax2.plot([], [], 'r-')  # Dummy plot for consistent legend
+        ax2.set_ylabel('Steps in Generation')
+
+        # Save combined figure
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.save_dir, 'curriculum_progress_combined.png'), dpi=200)
+        plt.close('all')
 
 
 class EpisodeSuccessHook(pfrl.experiments.StepHook):
@@ -185,21 +218,17 @@ class EpisodeSuccessHook(pfrl.experiments.StepHook):
         self.success_count = 0
         self.episode_count = 0
 
-    def __call__(self, env, agent, step):
-        # Get environment episode information
-        info = env.get_episode_info() if hasattr(env, 'get_episode_info') else {}
-
+    def __call__(self, env: BraidEnvironment, agent, step):
         # Check if an episode just ended
-        if hasattr(env, 'episode_ended') and env.episode_ended:
+        if env.done or env.success:
             self.episode_count += 1
-            success = info.get('success', False)
 
-            if success:
+            if env.success:
                 self.success_count += 1
 
             # Record episode result for curriculum learning
             if self.curriculum_manager:
-                difficulty_increased = self.curriculum_manager.record_episode_result(success)
+                difficulty_increased = self.curriculum_manager.record_episode_result(env.success)
                 if difficulty_increased:
                     # Reset the environment with new parameters
                     self.curriculum_manager.reset_environment_for_curriculum(env)
@@ -220,7 +249,7 @@ class EpisodeSuccessHook(pfrl.experiments.StepHook):
 
                 # Add to experience buffer
                 if len(episode_data['states']) > 0:
-                    self.exp_buffer.add_episode(episode_data, success)
+                    self.exp_buffer.add_episode(episode_data, env.success)
 
                 # Reset for next episode
                 self.current_episode_data = {

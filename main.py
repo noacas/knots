@@ -7,6 +7,7 @@ import json
 import pfrl
 
 from braid_env import BraidEnvironment
+from curriculum_manager import CurriculumManager, EpisodeSuccessHook
 from metrics import MetricsTracker, MetricsEvaluationHook, MetricsStepHook
 from reformer_networks import create_reformer_policy, create_reformer_vf
 from feed_forward_networks import create_ffn_policy, create_ffn_vf, initialize_ffn
@@ -120,6 +121,24 @@ def parse_args():
         default=64,
         help="Hidden dimension for Reformer",
     )
+    parser.add_argument(
+        "--use-curriculum",
+        action="store_true",
+        default=True,
+        help="Use curriculum learning",
+    )
+    parser.add_argument(
+        "--initial-steps-in-generation",
+        type=int,
+        default=2,
+        help="Initial steps in generation",
+    )
+    parser.add_argument(
+        "--success-threshold",
+        type=float,
+        default=0.5,
+        help="Success threshold for curriculum learning",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=args.log_level)
@@ -127,12 +146,13 @@ def parse_args():
 
 
 def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=100000,
-                      eval_n_runs=100, demo=False, load="", load_pretrained=False,
-                      trpo_update_interval=5000, log_level=logging.INFO,
-                      current_braid_length=20, target_braid_length=40,
-                      max_steps_for_braid=100, max_steps_in_generation=20,
-                      use_reformer=True, reformer_depth=2, reformer_heads=4, reformer_dim=64
-                      ):
+        eval_n_runs=100, demo=False, load="", load_pretrained=False,
+        trpo_update_interval=5000, log_level=logging.INFO,
+        current_braid_length=20, target_braid_length=40,
+        max_steps_for_braid=100, max_steps_in_generation=20,
+        use_reformer=True, reformer_depth=2, reformer_heads=4, reformer_dim=64,
+        use_curriculum=True, initial_steps_in_generation=2, success_threshold=0.5
+        ):
     """Run the training or demo process.
 
     Args:
@@ -155,6 +175,9 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         reformer_depth (int): Depth of Reformer networks
         reformer_heads (int): Number of attention heads in Reformer
         reformer_dim (int): Hidden dimension for Reformer
+        use_curriculum (bool): Whether to use curriculum learning
+        initial_steps_in_generation (int): Initial steps in generation
+        success_threshold (float): Success threshold for curriculum learning
     """
     # Create a dictionary of arguments for compatibility with existing code
     args = {
@@ -177,6 +200,9 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         "reformer_depth": reformer_depth,
         "reformer_heads": reformer_heads,
         "reformer_dim": reformer_dim,
+        "use_curriculum": True,
+        "initial_steps_in_generation": 2,
+        "success_threshold": 0.5,
     }
 
     assert args["current_braid_length"] <= args[
@@ -190,23 +216,25 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
     metrics_tracker = MetricsTracker(os_pth.join(args["outdir"], 'metrics'))
     evaluation_hook = MetricsEvaluationHook(metrics_tracker, args["outdir"])
     step_hook = MetricsStepHook(metrics_tracker)
+    step_hooks = [step_hook]
 
-    # curriculum_manager = CurriculumManager(
-    #     initial_braid_length=args["initial_braid_length"],
-    #     max_braid_length=args["max_braid_length"],
-    #     initial_steps_in_generation=args["initial_steps_in_generation"],
-    #     max_steps_in_generation=args["max_steps_in_generation"],
-    #     success_threshold=args["success_threshold"],
-    # )
-    # current_params = curriculum_manager.get_current_parameters()
-    # current_braid_length = current_params["current_braid_length"]
-    # current_steps_in_generation = current_params["max_steps_in_generation"]
+    curriculum_manager = None
+    max_steps_in_generation = args["max_steps_in_generation"]
+    if args["use_curriculum"]:
+        curriculum_manager = CurriculumManager(
+            initial_steps_in_generation=args["initial_steps_in_generation"],
+            max_steps_in_generation=args["max_steps_in_generation"],
+            success_threshold=args["success_threshold"],
+            save_dir=args["outdir"],
+        )
+        max_steps_in_generation = args["initial_steps_in_generation"]
+        step_hooks.append(EpisodeSuccessHook(curriculum_manager))
 
     env = BraidEnvironment(
         n_braids_max=args["current_braid_length"],
         n_letters_max=args["target_braid_length"],
         max_steps=args["max_steps_for_braid"],
-        max_steps_in_generation=args["max_steps_in_generation"],
+        max_steps_in_generation=max_steps_in_generation,
     )
     timestep_limit = env.max_steps
     obs_size = env.get_model_dim()
@@ -224,10 +252,6 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         print("Using Reformer networks")
         policy = create_reformer_policy(obs_size, action_size, reformer_depth, reformer_heads, reformer_dim)
         vf = create_reformer_vf(obs_size, reformer_depth, reformer_heads, reformer_dim)
-
-        # # Initialize the networks
-        # initialize_reformer_network(policy.policy_net)  # Initialize the Reformer part of the policy
-        # initialize_reformer_network(vf)
     else:
         print("Using regular feed-forward networks")
         # Original FFN implementation
@@ -288,11 +312,13 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
             eval_n_episodes=args["eval_n_runs"],
             eval_interval=args["eval_interval"],
             train_max_episode_len=timestep_limit,
-            step_hooks=[step_hook],
+            step_hooks=step_hooks,
             evaluation_hooks=[evaluation_hook],
         )
 
     metrics_tracker.plot_learning_curves()
+    if curriculum_manager is not None:
+        curriculum_manager.plot_curriculum_history()
 
 
 def main():
