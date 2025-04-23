@@ -76,8 +76,11 @@ class CurriculumManager:
             recent_history = self.success_history[self.last_update:]
         else:
             recent_history = self.success_history[-self.evaluation_window:]
-        success_rate = sum(recent_history) / len(recent_history)
 
+        if len(recent_history) == 0:
+            return 0.0
+
+        success_rate = sum(recent_history) / len(recent_history)
         return success_rate
 
     def record_episode_result(self, success: bool) -> bool:
