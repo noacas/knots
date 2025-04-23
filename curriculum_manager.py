@@ -72,7 +72,10 @@ class CurriculumManager:
             return 0.0
 
         # Consider only the most recent window of episodes
-        recent_history = self.success_history[-self.evaluation_window:]
+        if self.evaluation_counter - self.last_update < self.evaluation_window:
+            recent_history = self.success_history[self.last_update:]
+        else:
+            recent_history = self.success_history[-self.evaluation_window:]
         success_rate = sum(recent_history) / len(recent_history)
 
         return success_rate
