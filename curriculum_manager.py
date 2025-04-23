@@ -127,8 +127,8 @@ class CurriculumManager:
                     self.max_steps_in_generation
                 )
                 self.current_steps_in_generation = new_steps
-                self.last_update = self.evaluation_counter
                 self._record_curriculum_state()
+                self.last_update = self.evaluation_counter
 
                 # Plot curriculum history
                 self.plot_curriculum_history()
