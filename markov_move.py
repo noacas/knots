@@ -30,7 +30,10 @@ def conjugation_markov_move(braid: torch.Tensor, j: int, k: int) -> torch.Tensor
 def random_conjugation_markov_move(braid: torch.Tensor, k: Optional[int] = None) -> torch.Tensor:
     # Update braid: braid ← [(−1)^k j] + braid + [(−1)^(k+1) j]
     # Random index between 1 and max(abs(braid)) for j if not provided
-    j = random.randint(1, max_abs_braid(braid))
+    if braid.numel() == 0:
+        j = 1
+    else:
+        j = random.randint(1, max_abs_braid(braid))
     if k is None:
         # Random choice between 0 and 1 for k
         k = random.randint(0, 1)
@@ -43,8 +46,12 @@ def new_strand_markov_move(braid: torch.Tensor, k: int) -> torch.Tensor:
     Returns the braid: braid + [(−1)^k (max(abs(braid))+1)]
     k = 0 or 1
     """
+    # If braid is empty, new strand is with 1
+    new_strand = 1
+    if braid.numel() > 0:
+        new_strand = max_abs_braid(braid) + 1
     # Calculate the term to add
-    term = (-1) ** k * (max_abs_braid(braid) + 1)
+    term = (-1) ** k * new_strand
     # Update braid: braid ← braid + [(−1)^k (max(abs(braid))+1)]
     new_element = torch.tensor([term], dtype=torch.float).to(device=braid.device)
     return torch.cat((braid, new_element))
