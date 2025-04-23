@@ -49,10 +49,10 @@ class CurriculumManager:
         self.success_history: List[bool] = []
         self.curriculum_history: List[Dict] = []
         self.evaluation_counter = 0
+        self.last_update = 0 # in which evaluation the curriculum was updated
 
         # Save curriculum state
         self.save_dir = save_dir
-        self.last_save_step = 0
         os.makedirs(save_dir, exist_ok=True)
 
         # Save initial state to history
@@ -91,7 +91,7 @@ class CurriculumManager:
 
         # Check if we should increase difficulty
         difficulty_increased = False
-        if self.evaluation_counter >= self.min_evaluations_before_increase:
+        if self.evaluation_counter - self.last_update >= self.min_evaluations_before_increase:
             difficulty_increased = self._maybe_increase_difficulty()
 
         return difficulty_increased
@@ -121,6 +121,7 @@ class CurriculumManager:
                     self.max_steps_in_generation
                 )
                 self.current_steps_in_generation = new_steps
+                self.last_update = self.evaluation_counter
                 self._record_curriculum_state()
 
                 # Plot curriculum history
