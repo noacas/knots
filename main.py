@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument(
         "--eval-interval",
         type=int,
-        default=100000,
+        default=10000,
         help="Interval between evaluation phases in steps.",
     )
     parser.add_argument(
@@ -76,19 +76,19 @@ def parse_args():
     parser.add_argument(
         "--current-braid-length",
         type=int,
-        default=20,
+        default=5,
         help="Current braid length.",
     )
     parser.add_argument(
         "--target-braid-length",
         type=int,
-        default=40,
+        default=10,
         help="Target braid length.",
     )
     parser.add_argument(
         "--max-steps-for-braid",
         type=int,
-        default=100,
+        default=30,
         help="Maximum steps for braid.",
     )
     parser.add_argument(
@@ -145,7 +145,7 @@ def parse_args():
     return args
 
 
-def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=100000,
+def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000,
         eval_n_runs=100, demo=False, load="", load_pretrained=False,
         trpo_update_interval=5000, log_level=logging.INFO,
         current_braid_length=20, target_braid_length=40,
@@ -200,9 +200,9 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         "reformer_depth": reformer_depth,
         "reformer_heads": reformer_heads,
         "reformer_dim": reformer_dim,
-        "use_curriculum": True,
-        "initial_steps_in_generation": 2,
-        "success_threshold": 0.5,
+        "use_curriculum": use_curriculum,
+        "initial_steps_in_generation": initial_steps_in_generation,
+        "success_threshold": success_threshold,
     }
 
     assert args["current_braid_length"] <= args[
