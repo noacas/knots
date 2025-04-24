@@ -25,7 +25,7 @@ class CurriculumManager:
             success_threshold: float = 0.5,
             evaluation_window: int = 100,
             increase_step_size: int = 2,
-            min_evaluations_before_increase: int = 10,
+            min_evaluations_before_increase: int = 50,
             save_dir: str = 'curriculum_data',
     ):
         """Initialize the curriculum manager.
