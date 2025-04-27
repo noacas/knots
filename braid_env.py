@@ -45,7 +45,9 @@ class BraidEnvironment:
         self.success = False
         self.done = False
         state = self.get_state()
-        self.reward_shaper.reset(self.max_steps)
+        if self.reward_shaper is not None:
+            # Reset the reward shaper for a new episode
+            self.reward_shaper.reset(self.max_steps)
         return state
 
     def get_padded_braid(self, braid: torch.Tensor) -> torch.Tensor:
