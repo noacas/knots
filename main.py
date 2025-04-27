@@ -139,6 +139,12 @@ def parse_args():
         default=0.5,
         help="Success threshold for curriculum learning",
     )
+    parser.add_argument(
+        "--potential-based-reward",
+        action="store_true",
+        default=False,
+        help="Use potential-based reward shaping",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=args.log_level)
@@ -151,7 +157,8 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         current_braid_length=20, target_braid_length=40,
         max_steps_for_braid=100, max_steps_in_generation=20,
         use_reformer=True, reformer_depth=2, reformer_heads=4, reformer_dim=64,
-        use_curriculum=True, initial_steps_in_generation=2, success_threshold=0.5
+        use_curriculum=True, initial_steps_in_generation=2, success_threshold=0.5,
+        potential_based_reward=False
         ):
     """Run the training or demo process.
 
@@ -178,6 +185,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         use_curriculum (bool): Whether to use curriculum learning
         initial_steps_in_generation (int): Initial steps in generation
         success_threshold (float): Success threshold for curriculum learning
+        potential_based_reward (bool): Whether to use potential-based reward shaping
     """
     # Create a dictionary of arguments for compatibility with existing code
     args = {
@@ -203,6 +211,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         "use_curriculum": use_curriculum,
         "initial_steps_in_generation": initial_steps_in_generation,
         "success_threshold": success_threshold,
+        "potential_based_reward": potential_based_reward,
     }
 
     assert args["current_braid_length"] <= args[
@@ -235,6 +244,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         n_letters_max=args["target_braid_length"],
         max_steps=args["max_steps_for_braid"],
         max_steps_in_generation=max_steps_in_generation,
+        potential_based_reward=args["potential_based_reward"],
     )
     timestep_limit = env.max_steps
     obs_size = env.get_model_dim()

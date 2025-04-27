@@ -126,7 +126,7 @@ class RewardShaper:
         similarity = subsequence_similarity(current_braid, target_braid)
 
         # Convert to potential (higher is better)
-        potential = 100.0 - float(similarity) * 100.0  # Scale to 0-100 range
+        potential = 100.0 - (float(similarity) * 100.0)  # Scale to 0-100 range
 
         return potential
 

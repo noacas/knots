@@ -13,7 +13,7 @@ from subsequence_similarity import subsequence_similarity
 
 class BraidEnvironment:
     def __init__(self, n_braids_max=20, n_letters_max=40, max_steps=100,
-                 max_steps_in_generation=30,
+                 max_steps_in_generation=30, potential_based_reward=False,
                  should_randomize_cur_and_target=True):
         self.max_steps = max_steps
         self.max_steps_in_generation = max_steps_in_generation
@@ -28,7 +28,9 @@ class BraidEnvironment:
         self.success = False
         self.done = False
 
-        self.reward_shaper = RewardShaper()
+        self.reward_shaper = None
+        if potential_based_reward:
+            self.reward_shaper = RewardShaper()
 
         if should_randomize_cur_and_target:
             self.reset()
@@ -129,6 +131,8 @@ class BraidEnvironment:
         return self.get_state(), reward, self.success, info
 
     def calculate_reward(self, current_braid, next_braid, target_braid) -> float:
+        if self.reward_shaper is None:
+            return subsequence_similarity(current_braid, next_braid) * 100.0
         shaped_reward = self.reward_shaper.potential_based_reward(next_braid=next_braid,
                                                         current_braid=current_braid,
                                                         target_braid=target_braid)

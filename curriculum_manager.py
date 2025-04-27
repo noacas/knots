@@ -24,7 +24,7 @@ class CurriculumManager:
             max_steps_in_generation: int = 10,
             success_threshold: float = 0.5,
             evaluation_window: int = 100,
-            increase_step_size: int = 2,
+            increase_step_size: int = 1,
             min_evaluations_before_increase: int = 50,
             save_dir: str = 'curriculum_data',
     ):
