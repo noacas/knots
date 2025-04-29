@@ -200,6 +200,7 @@ class BraidEnvironment(gym.Env):
 
         # Make sure we return a numpy array, not a torch tensor
         state = self.get_state()
+        state = state.cpu().numpy() if self.device == "cuda" else state.numpy()
 
         return state, reward, terminated, truncated, info
 
