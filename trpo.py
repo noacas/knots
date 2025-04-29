@@ -1,111 +1,122 @@
-import pfrl
-import torch
-import gc
-from pfrl.agents.trpo import TRPO, _flatten_and_concat_variables
-
-def _hessian_vector_product(flat_grads, params, vec):
-    """Compute hessian-vector product efficiently.
-
-    This function computes a product of Hessian and a vector efficiently
-    using the formula: Hx = (g(f(x) + d) - g(f(x)))/d where g is gradient and
-    f is function.
-
-    Args:
-        flat_grads (torch.Tensor): gradient vector
-        params (list): parameter variables
-        vec (torch.Tensor): vector to be multiplied with Hessian
-    Returns:
-        torch.Tensor: product of Hessian and vector
-    """
-    vec = vec.detach()
-    kl_v = (flat_grads * vec).sum()
-    grads = torch.autograd.grad(kl_v, params, retain_graph=True)  # Add retain_graph=True here
-    flat_kl_grads = _flatten_and_concat_variables(grads)
-    return flat_kl_grads
+from pfrl.agents import TRPO
 
 
 class MyTRPO(TRPO):
+    def _compute_gain(self, action_values, actions):
+        # Compute probability ratio for importance sampling
+        distribs = self.get_policy_distribs_for_probs(action_values)
+        distribs_old = self.get_policy_distribs_for_probs(action_values)
+        for i in range(len(distribs_old)):
+            distribs_old[i].detach_prob_distribution()
 
-    def _compute_kl_constrained_step(self, action_distrib, action_distrib_old, gain):
-        # Clear memory before starting the computation
-        gc.collect()
-        torch.cuda.empty_cache()
+        log_probs = []
+        log_probs_old = []
+        for i in range(len(distribs)):
+            log_probs.append(distribs[i].log_prob(actions[i]))
+            log_probs_old.append(distribs_old[i].log_prob(actions[i]))
 
-        policy_params = list(self.policy.parameters())
+        log_probs = torch.stack(log_probs)
+        log_probs_old = torch.stack(log_probs_old)
 
-        kl = torch.distributions.kl.kl_divergence(
-            action_distrib_old, action_distrib
-        ).mean()
-
-        # Get kl gradients
-        kl_grads = torch.autograd.grad([kl], policy_params, create_graph=True, allow_unused=True)
-
-        # Filter out None gradients by replacing them with zero tensors
-        kl_grads = [
-            (torch.zeros_like(param) if g is None else g)
-            for g, param in zip(kl_grads, policy_params)
-        ]
-        flat_kl_grads = _flatten_and_concat_variables(kl_grads)
-
-        # Clear intermediate tensors
-        del kl_grads
-        torch.cuda.empty_cache()
-
-        # Compute fisher-vector product with memory optimizations
-        def fisher_vector_product_func(vec):
-            # Clear CUDA cache before heavy computation
-            torch.cuda.empty_cache()
-
-            if vec.device.type == 'cuda':
-                vec = vec.detach()  # Detach to avoid building computation history
-
-            # Compute HVP with memory management
-            try:
-                fvp = _hessian_vector_product(flat_kl_grads, policy_params, vec)
-                return fvp + self.conjugate_gradient_damping * vec
-            except RuntimeError as e:
-                if "CUDA out of memory" in str(e):
-                    print("Warning: CUDA OOM in HVP, using fallback method")
-                    # Fallback to a more memory-efficient but less accurate approach
-                else:
-                    print("Error in HVP computation:", e)
-                return vec * 0.1  # Approximation to avoid OOM
-
-        # Compute gain gradients
-        torch.cuda.empty_cache()
-        gain_grads = torch.autograd.grad([gain], policy_params, allow_unused=True)
-        gain_grads = [
-            (torch.zeros_like(param) if g is None else g)
-            for g, param in zip(gain_grads, policy_params)
-        ]
-        flat_gain_grads = _flatten_and_concat_variables(gain_grads).detach()
-
-        # Clear more memory before CG
-        del gain_grads
-        gc.collect()
-        torch.cuda.empty_cache()
-
-        try:
-            step_direction = pfrl.utils.conjugate_gradient(
-                fisher_vector_product_func,
-                flat_gain_grads,
-                max_iter=self.conjugate_gradient_max_iter,
+        # Advantage: compute on CPU for stability
+        with torch.no_grad():
+            vs = self.get_batch_value_prediction(action_values)
+            next_vs = self.get_batch_value_prediction(
+                [elem["next_state"] for elem in action_values]
             )
+            advs = [
+                elem["reward"]
+                + (
+                    0
+                    if elem["is_state_terminal"]
+                    else self.gamma * next_vs[i].item()
+                )
+                - vs[i].item()
+                for i, elem in enumerate(action_values)
+            ]
+            advs = torch.tensor(advs, dtype=torch.float)
 
-            # Calculate the scale factor
-            dId = float(step_direction.dot(fisher_vector_product_func(step_direction)))
-            scale = (2.0 * self.max_kl / (dId + 1e-8)) ** 0.5
+        # Normalize advantage
+        n_samples = advs.shape[0]
+        mean = torch.mean(advs)
+        advs = advs - mean
+        std = torch.std(advs)
+        if std != 0:
+            advs = advs / std
+        else:
+            advs = advs * 0
 
-            # Clear memory after computation
-            gc.collect()
-            torch.cuda.empty_cache()
+        prob_ratio = torch.exp(log_probs - log_probs_old)
+        gain = torch.sum(prob_ratio * advs) / n_samples
+        return gain, distribs, distribs_old
 
-            return scale * step_direction
+    def update(self, experiences, errors_out=None):
+        """Update the model using a batch of experiences
 
-        except RuntimeError as e:
-            print(f"Error in conjugate gradient: {e}")
-            # Fallback if CG fails
-            print("Using gradient direction as fallback")
-            torch.cuda.empty_cache()
-            # Just use the gradient direction with a small step size
-            return flat_gain_grads * 0.01
+        Args:
+            experiences: List of experiences
+            errors_out (list or None): Optional output destination for errors
+
+        Returns:
+            None
+        """
+        # Generate parser for experiences
+        action_values = list(filter(lambda elem: "state" in elem, experiences))
+
+        # Compute loss
+        gain, distribs, distribs_old = self._compute_gain(action_values,
+                                                          [elem["action"] for elem in action_values])
+
+        # Update policy with kl constraint
+        step_size = self._compute_kl_constrained_step(distribs, distribs_old, gain)
+
+        # Apply update
+        self.policy_optimizer.zero_grad()
+        flat_params = _flatten_and_concat_variables(list(self.policy.parameters()))
+        updated_flat_params = flat_params + step_size
+        _replace_params_data(self.policy, updated_flat_params)
+
+        # Update value function
+        vsgen = (elem["state"] for elem in experiences)
+        vs = self.get_batch_value_prediction(list(vsgen))
+        target_vs = []
+        target_vs_in_next_step = self.get_batch_value_prediction(
+            [elem["next_state"] for elem in experiences]
+        )
+
+        for i, (exp, target_v_in_next_step) in enumerate(
+                zip(experiences, target_vs_in_next_step)
+        ):
+            if exp["is_state_terminal"]:
+                target_vs.append(torch.tensor(exp["reward"]))
+            else:
+                target_vs.append(
+                    torch.tensor(
+                        exp["reward"] + self.gamma * target_v_in_next_step.item()
+                    )
+                )
+
+        target_vs = torch.stack(target_vs)
+        for _ in range(10):  # Multiple value updates per policy update
+            self.value_function_optimizer.zero_grad()
+            loss = ((vs - target_vs) ** 2).mean() / 2
+            loss.backward()
+            self.value_function_optimizer.step()
+            vs = self.get_batch_value_prediction(list(vsgen))  # Refresh vs
+
+        return None
+
+
+# Helper function for updating parameters
+def _replace_params_data(module, flat_params):
+    """Replace data of params in module with given flat parameters.
+
+    Args:
+        module (torch.nn.Module): Module with parameters to be replaced
+        flat_params (torch.Tensor): Flattened parameter data
+    """
+    offset = 0
+    for param in module.parameters():
+        new_data = flat_params[offset: offset + param.numel()].reshape(param.shape)
+        param.data.copy_(new_data)
+        offset += param.numel()
