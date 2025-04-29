@@ -15,8 +15,8 @@ from tianshou.env import DummyVectorEnv
 from tianshou.policy import TRPOPolicy
 from tianshou.trainer import onpolicy_trainer
 from tianshou.utils import TensorboardLogger
-from tianshou.utils.net.common import Net
-from tianshou.utils.net.continuous import ActorProb, Critic
+from tianshou.utils.net.common import Net, ActorCritic
+from tianshou.utils.net.discrete import Actor, Critic
 
 # Import BraidEnvironment components - you'll need to adjust these imports based on your project structure
 from braid_relation import shift_left, shift_right, braid_relation1, braid_relation2
@@ -297,26 +297,33 @@ def train_trpo(args=get_args()):
     state_shape = env.observation_space.shape or env.observation_space.n
     action_shape = env.action_space.shape or env.action_space.n
 
-    # Build networks for discrete action space
+    # Build networks for discrete action space - updated for newer Tianshou API
     net = Net(
         state_shape=state_shape,
+        hidden_sizes=args.hidden_sizes,
+        device=args.device
+    )
+    actor = Actor(
+        preprocess_net=net,
         action_shape=action_shape,
-        hidden_sizes=args.hidden_sizes,
+        hidden_sizes=[],  # No additional hidden layers after net
         device=args.device
     )
-    actor = net
     critic = Critic(
-        input_dim=np.prod(state_shape),
-        hidden_sizes=args.hidden_sizes,
+        preprocess_net=net,
+        hidden_sizes=[],  # No additional hidden layers after net
         device=args.device
     )
+    actor_critic = ActorCritic(actor, critic)
+
+    # For discrete action space in TRPO
     dist_fn = torch.distributions.Categorical
 
     # Create TRPO policy
     policy = TRPOPolicy(
         actor=actor,
         critic=critic,
-        optim=torch.optim.Adam(critic.parameters(), lr=args.lr),
+        optim=torch.optim.Adam(actor_critic.parameters(), lr=args.lr),
         dist_fn=dist_fn,
         discount_factor=args.gamma,
         gae_lambda=args.gae_lambda,
