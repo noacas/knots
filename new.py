@@ -84,6 +84,7 @@ class BraidEnvironment(gym.Env):
             self.reward_shaper.reset(self.max_steps)
 
         info = {}
+        state = state.cpu().numpy() if self.device == "cuda" else state.numpy()
         return state, info
 
     def render(self):
