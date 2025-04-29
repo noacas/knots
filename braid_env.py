@@ -85,7 +85,6 @@ class BraidEnvironment:
         # self.n_braids_max+3: BraidRelation2 and ShiftRight
         self.steps_taken += 1
         should_punish = False
-        next_braid = None
 
         previous_braid = self.current_braid.clone().to(device=self.current_braid.device)
 
@@ -99,6 +98,7 @@ class BraidEnvironment:
             else:
                 # if the braid is at its maximum length, the action is invalid
                 should_punish = True
+                next_braid = self.current_braid
         elif action == self.n_braids_max:
             next_braid = shift_left(self.current_braid)
         elif action == self.n_braids_max + 1:
