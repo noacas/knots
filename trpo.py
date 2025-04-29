@@ -1,3 +1,4 @@
+import pfrl
 import torch
 from pfrl.agents import TRPO
 from pfrl.agents.trpo import _flatten_and_concat_variables
