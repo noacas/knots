@@ -1,8 +1,28 @@
 import pfrl
 import torch
 import gc
-from pfrl.agents.trpo import TRPO, _hessian_vector_product, _flatten_and_concat_variables
-from pfrl.utils import conjugate_gradient
+from pfrl.agents.trpo import TRPO, _flatten_and_concat_variables
+
+
+def _hessian_vector_product(flat_grads, params, vec):
+    """Compute hessian-vector product efficiently.
+
+    This function computes a product of Hessian and a vector efficiently
+    using the formula: Hx = (g(f(x) + d) - g(f(x)))/d where g is gradient and
+    f is function.
+
+    Args:
+        flat_grads (torch.Tensor): gradient vector
+        params (list): parameter variables
+        vec (torch.Tensor): vector to be multiplied with Hessian
+    Returns:
+        torch.Tensor: product of Hessian and vector
+    """
+    vec = vec.detach()
+    kl_v = (flat_grads * vec).sum()
+    grads = torch.autograd.grad(kl_v, params, retain_graph=True)  # Add retain_graph=True here
+    flat_kl_grads = _flatten_and_concat_variables(grads)
+    return flat_kl_grads
 
 
 class MyTRPO(TRPO):
