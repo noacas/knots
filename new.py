@@ -9,13 +9,9 @@ import gymnasium as gym
 from gymnasium import spaces
 import logging
 
-import argparse
 import datetime
-import os
 import pprint
 
-import numpy as np
-import torch
 from torch import nn
 from torch.distributions import Distribution, Independent, Normal
 from torch.optim.lr_scheduler import LambdaLR
@@ -31,11 +27,8 @@ from tianshou.utils.net.continuous import ActorProb, Critic
 # Import Tianshou components
 from tianshou.data import Collector, VectorReplayBuffer
 from tianshou.env import DummyVectorEnv
-from tianshou.policy import TRPOPolicy
 from tianshou.trainer import onpolicy_trainer
 from tianshou.utils import TensorboardLogger
-from tianshou.utils.net.common import Net, ActorCritic
-from tianshou.utils.net.discrete import Actor, Critic
 
 # Import BraidEnvironment components - you'll need to adjust these imports based on your project structure
 from braid_relation import shift_left, shift_right, braid_relation1, braid_relation2
@@ -292,7 +285,7 @@ def get_args():
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--gae-lambda', type=float, default=0.95)
-    parser.add_argument('--advantage-normalization', action='store_true', default=True,
+    parser.add_argument('--norm-adv', action='store_true', default=True,
                         help='Normalize advantage if true')
     parser.add_argument('--vf-coef', type=float, default=0.5,
                         help="Value function coefficient")
@@ -300,7 +293,23 @@ def get_args():
                         help="Entropy coefficient")
     parser.add_argument('--max-grad-norm', type=float, default=0.5,
                         help="Max gradient norm for clipping")
-    # Training parameters
+    # TRPO additional arguments
+    parser.add_argument('--rew-norm', action='store_true', default=False,
+                        help="Normalize reward if true")
+    parser.add_argument('--bound-action-method', type=str, default="clip",
+                        help="Method to bound actions: clip or tanh")
+    parser.add_argument('--optim-critic-iters', type=int, default=5,
+                        help="Number of iterations for optimizing critic")
+    parser.add_argument('--max-kl', type=float, default=0.01,
+                        help="Max KL divergence between old and new policy")
+    parser.add_argument('--backtrack-coeff', type=float, default=0.8,
+                        help="Backtracking coefficient for line search")
+    parser.add_argument('--max-backtracks', type=int, default=10,
+                        help="Maximum number of backtracks for line search")
+    parser.add_argument('--lr-decay', action='store_true', default=False,
+                        help="Decay learning rate linearly if true")
+    # Buffer and training parameters
+    parser.add_argument('--buffer-size', type=int, default=20000)
     parser.add_argument('--epoch', type=int, default=100)
     parser.add_argument('--step-per-epoch', type=int, default=30000)
     parser.add_argument('--step-per-collect', type=int, default=2000)
@@ -311,6 +320,18 @@ def get_args():
     parser.add_argument('--logdir', type=str, default='log')
     parser.add_argument('--save-interval', type=int, default=10)
     parser.add_argument('--render', action='store_true', help='Render during training')
+    parser.add_argument('--resume-path', type=str, default=None,
+                        help='Path to resume training from a saved model')
+    parser.add_argument('--resume-id', type=str, default=None,
+                        help='ID to resume training')
+    parser.add_argument('--logger', type=str, default='tensorboard',
+                        choices=['tensorboard', 'wandb'])
+    parser.add_argument('--wandb-project', type=str, default='braid-rl',
+                        help='Wandb project name')
+    parser.add_argument('--task', type=str, default='braid',
+                        help='Task name for logging')
+    parser.add_argument('--watch', action='store_true',
+                        help='Only watch the trained agent without training')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     return parser.parse_args()
 
@@ -445,8 +466,8 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
         buffer = VectorReplayBuffer(args.buffer_size, len(train_envs))
     else:
         buffer = ReplayBuffer(args.buffer_size)
-    train_collector = Collector[CollectStats](policy, train_envs, buffer, exploration_noise=True)
-    test_collector = Collector[CollectStats](policy, test_envs)
+    train_collector = Collector(policy, train_envs, buffer, exploration_noise=True)
+    test_collector = Collector(policy, test_envs)
 
     # log
     now = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
@@ -494,8 +515,8 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
     # Let's watch its performance!
     test_envs.seed(args.seed)
     test_collector.reset()
-    collector_stats = test_collector.collect(n_episode=args.test_num, render=args.render)
-    print(collector_stats)
+    result = test_collector.collect(n_episode=args.test_num, render=args.render)
+    print(result)
 
 
 if __name__ == "__main__":
