@@ -13,7 +13,7 @@ def fixed_hvp(flat_grads, params, vec):
     kl_v = torch.sum(flat_grads * vec)
 
     grads = torch.autograd.grad(
-        kl_v, params, retain_graph=True
+        kl_v, params, retain_graph=True, allow_unused=True
     )
 
     flat_kl_grads = _flatten_and_concat_variables(grads)
