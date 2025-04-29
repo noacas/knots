@@ -4,167 +4,177 @@ import gc
 import numpy as np
 from pfrl.agents.trpo import TRPO, _flatten_and_concat_variables
 from pfrl.utils import conjugate_gradient
-from pfrl.utils.batch_states import batch_states
-import torch.nn.functional as F
-from pfrl.utils import clip_l2_grad_norm_
-from pfrl.agents.ppo import _yield_minibatches
+
+
+def safe_hvp(flat_kl_grads, policy_params, vec):
+    """
+    Safe Hessian-vector product computation that avoids graph retention issues.
+
+    This works by using finite differences approximation as a fallback.
+    """
+    # First try the direct approach with retain_graph=True
+    try:
+        vec = vec.detach()
+        kl_v = (flat_kl_grads * vec).sum()
+
+        grads = torch.autograd.grad(
+            kl_v, policy_params, retain_graph=True, allow_unused=True
+        )
+
+        # Replace None gradients with zeros
+        grads = [
+            torch.zeros_like(param) if g is None else g
+            for g, param in zip(grads, policy_params)
+        ]
+
+        return _flatten_and_concat_variables(grads)
+
+    except RuntimeError as e:
+        print(f"Direct HVP failed with error: {e}")
+        print("Using finite difference approximation instead")
+
+        # Use finite difference approximation
+        # Save original parameters
+        original_params = [p.data.clone() for p in policy_params]
+
+        # Compute parameter shapes and sizes for later
+        param_shapes = [p.shape for p in policy_params]
+        param_sizes = [p.numel() for p in policy_params]
+
+        # Flatten vector to make it easier to work with
+        flat_vec = vec.clone().detach()
+
+        # Choose a small epsilon
+        eps = 1e-3
+
+        # Perturb parameters in the direction of the vector
+        with torch.no_grad():
+            offset = 0
+            for i, param in enumerate(policy_params):
+                size = param_sizes[i]
+                shape = param_shapes[i]
+                # Extract portion of the vector corresponding to this parameter
+                param_vec = flat_vec[offset:offset + size].reshape(shape)
+                # Perturb parameter
+                param.data.add_(eps * param_vec)
+                offset += size
+
+        # Compute perturbed KL gradients
+        with torch.enable_grad():
+            # Forward pass to get new distribution
+            states = [b["state"] for b in dataset]
+            states_tensor = torch.tensor(states, device=policy_params[0].device)
+            perturbed_distrib = policy(states_tensor)
+
+            # Compute KL divergence
+            with torch.no_grad():
+                old_distrib = torch.distributions.Categorical(probs=old_probs)
+
+            kl = torch.mean(torch.distributions.kl_divergence(
+                old_distrib, perturbed_distrib
+            ))
+
+            # Get gradients of KL
+            perturbed_grads = torch.autograd.grad(
+                kl, policy_params, allow_unused=True
+            )
+
+            # Replace None with zeros
+            perturbed_grads = [
+                torch.zeros_like(param) if g is None else g.detach()
+                for g, param in zip(perturbed_grads, policy_params)
+            ]
+
+        # Restore original parameters
+        with torch.no_grad():
+            for i, param in enumerate(policy_params):
+                param.data.copy_(original_params[i])
+
+        # Compute finite difference approximation
+        fd_grads = []
+        for i in range(len(perturbed_grads)):
+            diff = (perturbed_grads[i] - kl_grads[i]) / eps
+            fd_grads.append(diff)
+
+        return _flatten_and_concat_variables(fd_grads)
 
 
 class MyTRPO(TRPO):
-    def _compute_kl_constrained_step(self, action_distrib, action_distrib_old, gain):
-        """Compute a step of policy parameters with a KL constraint."""
-        # Clear memory before starting the computation
-        gc.collect()
-        torch.cuda.empty_cache()
+    """TRPO with robust KL-constrained updates."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Increase epochs for value function
+        self.vf_epochs = 10
+
+    def _compute_kl_constrained_step(self, action_distrib, action_distrib_old, gain):
+        """Compute a step with robust HVP calculation."""
         policy_params = list(self.policy.parameters())
 
+        # Store variables for the HVP calculation
+        global policy, old_probs, dataset, kl_grads
+        policy = self.policy
+        old_probs = action_distrib_old.probs.detach()
+
+        # Compute KL divergence
         kl = torch.mean(
             torch.distributions.kl_divergence(action_distrib_old, action_distrib)
         )
 
-        # Get kl gradients - ADD allow_unused=True HERE
-        kl_grads = torch.autograd.grad([kl], policy_params, create_graph=True, allow_unused=True)
+        # Get KL gradients
+        kl_grads = torch.autograd.grad(
+            [kl], policy_params, create_graph=False, allow_unused=True
+        )
 
-        # Filter out None gradients by replacing them with zero tensors
+        # Replace None gradients with zeros
         kl_grads = [
-            (torch.zeros_like(param) if g is None else g)
+            torch.zeros_like(param) if g is None else g
             for g, param in zip(kl_grads, policy_params)
         ]
+
         flat_kl_grads = _flatten_and_concat_variables(kl_grads)
 
-        # Clear intermediate tensors
-        del kl_grads
-        torch.cuda.empty_cache()
-
-        # Compute fisher-vector product with memory optimizations
+        # Define FVP function using our safe HVP
         def fisher_vector_product_func(vec):
-            # Clear CUDA cache before heavy computation
-            torch.cuda.empty_cache()
+            return safe_hvp(flat_kl_grads, policy_params, vec) + self.conjugate_gradient_damping * vec
 
-            if vec.device.type == 'cuda':
-                vec = vec.detach()  # Detach to avoid building computation history
+        # Compute gain gradients
+        gain_grads = torch.autograd.grad(
+            [gain], policy_params, allow_unused=True
+        )
 
-            # Compute HVP with fixed version that includes retain_graph=True
-            try:
-                vec = vec.detach()
-                kl_v = (flat_kl_grads * vec).sum()
-
-                # Add allow_unused=True HERE TOO
-                grads = torch.autograd.grad(kl_v, policy_params, retain_graph=True, allow_unused=True)
-
-                # Replace None gradients with zeros
-                grads = [
-                    (torch.zeros_like(param) if g is None else g)
-                    for g, param in zip(grads, policy_params)
-                ]
-
-                flat_kl_grads2 = _flatten_and_concat_variables(grads)
-                return flat_kl_grads2 + self.conjugate_gradient_damping * vec
-
-            except RuntimeError as e:
-                print("Error in HVP computation:", e)
-                return vec * 0.1  # Approximation to avoid OOM
-
-        # Compute gain gradients - ADD allow_unused=True HERE TOO
-        torch.cuda.empty_cache()
-        gain_grads = torch.autograd.grad([gain], policy_params, allow_unused=True)
+        # Replace None gradients with zeros
         gain_grads = [
-            (torch.zeros_like(param) if g is None else g)
+            torch.zeros_like(param) if g is None else g
             for g, param in zip(gain_grads, policy_params)
         ]
+
         flat_gain_grads = _flatten_and_concat_variables(gain_grads).detach()
 
-        # Clear more memory before CG
-        del gain_grads
-        torch.cuda.empty_cache()
-
         try:
-            step_direction = pfrl.utils.conjugate_gradient(
+            # Try conjugate gradient
+            step_direction = conjugate_gradient(
                 fisher_vector_product_func,
                 flat_gain_grads,
                 max_iter=self.conjugate_gradient_max_iter,
             )
 
-            # Calculate the scale factor
-            dId = float(step_direction.dot(fisher_vector_product_func(step_direction)))
-            scale = (2.0 * self.max_kl / (dId + 1e-8)) ** 0.5
-
-            # Clear memory after computation
-            gc.collect()
-            torch.cuda.empty_cache()
+            # Calculate scaling factor
+            hvp_step = fisher_vector_product_func(step_direction)
+            scale = torch.sqrt(
+                2.0 * self.max_kl / (torch.dot(step_direction, hvp_step) + 1e-8)
+            )
 
             return scale * step_direction
 
         except RuntimeError as e:
             print(f"Error in conjugate gradient: {e}")
-            # Fallback if CG fails
-            print("Using gradient direction as fallback")
-            torch.cuda.empty_cache()
-            # Just use the gradient direction with a small step size
-            return flat_gain_grads * 0.01
+            # Fallback to simple gradient step
+            norm = torch.norm(flat_gain_grads)
+            if norm > 0:
+                direction = flat_gain_grads / norm
+            else:
+                direction = flat_gain_grads
 
-
-class EnhancedTRPO(MyTRPO):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        # Increase number of epochs for value function training
-        self.vf_epochs = 10
-
-        # Set a higher learning rate for value function
-        for param_group in self.vf_optimizer.param_groups:
-            param_group['lr'] *= 3.0
-
-    def _update_vf(self, dataset):
-        """Enhanced value function update with better training"""
-        assert "state" in dataset[0]
-        assert "v_teacher" in dataset[0]
-
-        # Get all returns for diagnostics
-        all_returns = np.array([b["v_teacher"] for b in dataset])
-
-        print(f"Returns stats: min={all_returns.min():.4f}, "
-              f"max={all_returns.max():.4f}, "
-              f"mean={all_returns.mean():.4f}, "
-              f"std={all_returns.std():.4f}")
-
-        # Multiple epochs of training
-        for epoch in range(self.vf_epochs):
-            for batch in _yield_minibatches(
-                    dataset, minibatch_size=self.vf_batch_size, num_epochs=1
-            ):
-                states = batch_states([b["state"] for b in batch], self.device, self.phi)
-                if self.obs_normalizer:
-                    states = self.obs_normalizer(states, update=False)
-
-                vs_teacher = torch.as_tensor(
-                    [b["v_teacher"] for b in batch],
-                    device=self.device,
-                    dtype=torch.float,
-                )
-
-                vs_pred = self.vf(states).squeeze(-1)
-                vf_loss = F.mse_loss(vs_pred, vs_teacher)
-
-                self.vf_optimizer.zero_grad()
-                vf_loss.backward()
-                if self.max_grad_norm is not None:
-                    clip_l2_grad_norm_(self.vf.parameters(), self.max_grad_norm)
-                self.vf_optimizer.step()
-
-        # Calculate explained variance
-        with torch.no_grad():
-            all_states = batch_states([b["state"] for b in dataset], self.device, self.phi)
-            if self.obs_normalizer:
-                all_states = self.obs_normalizer(all_states, update=False)
-
-            predictions = self.vf(all_states).squeeze(-1).cpu().numpy()
-            targets = all_returns
-            var_y = np.var(targets)
-            explained_var = 1 - np.var(targets - predictions) / (var_y + 1e-8)
-
-            print(f"Value function explained variance: {explained_var:.4f}")
-
-            # Update our saved explained variance
-            self.explained_variance = explained_var
+            # Start with a small step size
+            return 0.01 * direction
