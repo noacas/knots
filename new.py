@@ -30,7 +30,7 @@ from subsequence_similarity import subsequence_similarity
 class BraidEnvironment(gym.Env):
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, n_braids_max=20, n_letters_max=40, max_steps=100,
+    def __init__(self, device, n_braids_max=20, n_letters_max=40, max_steps=100,
                  max_steps_in_generation=30, potential_based_reward=False,
                  should_randomize_cur_and_target=True, render_mode="human"):
         self.max_steps = max_steps
@@ -59,6 +59,8 @@ class BraidEnvironment(gym.Env):
             dtype=np.float32
         )
         self.action_space = spaces.Discrete(n_braids_max + 4)
+
+        self.device = device
 
         if should_randomize_cur_and_target:
             self.reset()
@@ -104,7 +106,7 @@ class BraidEnvironment(gym.Env):
     def get_state(self) -> torch.Tensor:
         # Combine current braid and target braid as state, each is padded to max length with zeros
         cur, tar = self.get_padded_braids()
-        return torch.cat([cur, tar])
+        return torch.cat([cur, tar]).to(self.device)
 
     def get_model_dim(self) -> int:
         return self.n_letters_max * 2  # length of the state (2 padded braids)
