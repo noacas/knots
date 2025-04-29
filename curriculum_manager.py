@@ -149,7 +149,7 @@ class CurriculumManager:
         """
         Save curriculum history data to a CSV file.
         """
-        with open(self.save_dir, 'w', newline='') as csvfile:
+        with open(os.path.join(self.save_dir, 'curriculum_data.csv'), 'w', newline='') as csvfile:
             fieldnames = ['evaluation_counter', 'steps_in_generation', 'success_rate']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
