@@ -245,7 +245,7 @@ def get_args():
 
 
 def make_env(n_braids_max, n_letters_max, max_steps, max_steps_in_generation,
-             potential_based_reward, render_mode=None):
+             potential_based_reward, device, render_mode=None):
     """Function to create environment instances for vectorized environments"""
     return lambda: BraidEnvironment(
         n_braids_max=n_braids_max,
@@ -253,7 +253,8 @@ def make_env(n_braids_max, n_letters_max, max_steps, max_steps_in_generation,
         max_steps=max_steps,
         max_steps_in_generation=max_steps_in_generation,
         potential_based_reward=potential_based_reward,
-        render_mode=render_mode
+        render_mode=render_mode,
+        device=device,
     )
 
 
@@ -282,6 +283,7 @@ def train_trpo(args=get_args()):
             args.max_steps,
             args.max_steps_in_generation,
             args.potential_based_reward,
+            args.device,
             render_mode_train if i == 0 else None  # Only render the first env if render is enabled
         ) for i in range(args.training_num)]
     )
@@ -292,6 +294,7 @@ def train_trpo(args=get_args()):
             args.max_steps,
             args.max_steps_in_generation,
             args.potential_based_reward,
+            args.device,
             None  # Don't render test environments
         ) for _ in range(args.test_num)]
     )
