@@ -111,7 +111,7 @@ class BraidEnvironment(gym.Env):
     def get_state(self) -> torch.Tensor:
         # Combine current braid and target braid as state, each is padded to max length with zeros
         cur, tar = self.get_padded_braids()
-        return torch.cat([cur, tar])
+        return torch.cat([cur, tar]).to(self.device)
 
     def get_model_dim(self) -> int:
         return self.n_letters_max * 2  # length of the state (2 padded braids)
