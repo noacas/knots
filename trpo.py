@@ -3,7 +3,6 @@ import torch
 import gc
 from pfrl.agents.trpo import TRPO, _flatten_and_concat_variables
 
-
 def _hessian_vector_product(flat_grads, params, vec):
     """Compute hessian-vector product efficiently.
 
