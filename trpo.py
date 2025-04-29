@@ -105,7 +105,7 @@ class MyTRPO(TRPO):
             return flat_gain_grads * 0.01
 
 
-class EnhancedTRPO(FixedTRPO):
+class EnhancedTRPO(MyTRPO):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
