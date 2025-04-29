@@ -286,7 +286,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         conjugate_gradient_damping=1e-1,
         gamma=0.95,
         lambd=0.97,
-        vf_epochs=5,
+        vf_epochs=10,
         entropy_coef=0.01,
     )
 
