@@ -265,7 +265,8 @@ def train_trpo(args=get_args()):
         max_steps=args.max_steps,
         max_steps_in_generation=args.max_steps_in_generation,
         potential_based_reward=args.potential_based_reward,
-        render_mode="human" if args.render else None
+        render_mode="human" if args.render else None,
+        device=args.device,
     )
 
     # Seed everything for reproducibility
