@@ -32,6 +32,7 @@ class BraidEnvironment(gym.Env):
 
     def __init__(self, n_braids_max=20, n_letters_max=40, max_steps=100,
                  max_steps_in_generation=30, potential_based_reward=False,
+                 device="cpu",
                  should_randomize_cur_and_target=True, render_mode="human"):
         self.max_steps = max_steps
         self.max_steps_in_generation = max_steps_in_generation
@@ -59,6 +60,8 @@ class BraidEnvironment(gym.Env):
             dtype=np.float32
         )
         self.action_space = spaces.Discrete(n_braids_max + 4)
+
+        self.device = device
 
         if should_randomize_cur_and_target:
             self.reset()
@@ -255,7 +258,7 @@ def get_args():
 
 
 def make_env(n_braids_max, n_letters_max, max_steps, max_steps_in_generation,
-             potential_based_reward, render_mode=None):
+             potential_based_reward, device, render_mode=None):
     """Function to create environment instances for vectorized environments"""
     return lambda: BraidEnvironment(
         n_braids_max=n_braids_max,
@@ -263,6 +266,7 @@ def make_env(n_braids_max, n_letters_max, max_steps, max_steps_in_generation,
         max_steps=max_steps,
         max_steps_in_generation=max_steps_in_generation,
         potential_based_reward=potential_based_reward,
+        device=device,
         render_mode=render_mode
     )
 
@@ -283,6 +287,7 @@ def train_trpo(args=get_args()):
         max_steps=args.max_steps,
         max_steps_in_generation=args.max_steps_in_generation,
         potential_based_reward=args.potential_based_reward,
+        device=args.device,
         render_mode="human" if args.render else None
     )
 
@@ -299,6 +304,7 @@ def train_trpo(args=get_args()):
             args.max_steps,
             args.max_steps_in_generation,
             args.potential_based_reward,
+            args.device,
             render_mode_train if i == 0 else None  # Only render the first env if render is enabled
         ) for i in range(args.training_num)]
     )
@@ -309,6 +315,7 @@ def train_trpo(args=get_args()):
             args.max_steps,
             args.max_steps_in_generation,
             args.potential_based_reward,
+            args.device,
             None  # Don't render test environments
         ) for _ in range(args.test_num)]
     )
