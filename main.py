@@ -271,7 +271,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
 
     # TRPO's policy is optimized via CG and line search, so it doesn't require
     # an Optimizer. Only the value function needs it.
-    vf_opt = torch.optim.Adam(vf.parameters())
+    vf_opt = torch.optim.Adam(vf.parameters(), lr=3e-4)
 
     # Hyperparameters in http://arxiv.org/abs/1709.06560
     agent = TRPO(
