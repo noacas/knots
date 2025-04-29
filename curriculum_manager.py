@@ -162,6 +162,7 @@ class CurriculumManager:
                 })
 
     def plot_curriculum_history(self):
+        self.save_curriculum_data()
         # Extract data from curriculum history
         eval_counters = [entry['evaluation_counter'] for entry in self.curriculum_history]
         steps_in_generation = [entry['steps_in_generation'] for entry in self.curriculum_history]
