@@ -10,7 +10,7 @@ from pfrl.utils import clip_l2_grad_norm_
 from pfrl.agents.ppo import _yield_minibatches
 
 
-class FixedTRPO(TRPO):
+class MyTRPO(TRPO):
     def _compute_kl_constrained_step(self, action_distrib, action_distrib_old, gain):
         """Compute a step of policy parameters with a KL constraint."""
         # Clear memory before starting the computation
