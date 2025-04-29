@@ -134,7 +134,7 @@ class BraidEnvironment:
 
     def calculate_reward(self, current_braid, next_braid, target_braid) -> float:
         if self.reward_shaper is None:
-            return subsequence_similarity(current_braid, next_braid) * 100.0
+            return subsequence_similarity(next_braid, target_braid) * 100.0
         shaped_reward = self.reward_shaper.potential_based_reward(next_braid=next_braid,
                                                         current_braid=current_braid,
                                                         target_braid=target_braid)
