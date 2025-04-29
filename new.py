@@ -83,10 +83,6 @@ class BraidEnvironment(gym.Env):
             # Reset the reward shaper for a new episode
             self.reward_shaper.reset(self.max_steps)
 
-        # Make sure we return a numpy array, not a torch tensor
-        if isinstance(state, torch.Tensor):
-            state = state.cpu().numpy()
-
         info = {}
         return state, info
 
@@ -111,7 +107,8 @@ class BraidEnvironment(gym.Env):
     def get_state(self) -> torch.Tensor:
         # Combine current braid and target braid as state, each is padded to max length with zeros
         cur, tar = self.get_padded_braids()
-        return torch.cat([cur, tar]).to(self.device)
+        state = torch.cat([cur, tar]).to(self.device)
+        return state
 
     def get_model_dim(self) -> int:
         return self.n_letters_max * 2  # length of the state (2 padded braids)
@@ -202,8 +199,6 @@ class BraidEnvironment(gym.Env):
 
         # Make sure we return a numpy array, not a torch tensor
         state = self.get_state()
-        if isinstance(state, torch.Tensor):
-            state = state.cpu().numpy()
 
         return state, reward, terminated, truncated, info
 
