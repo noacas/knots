@@ -5,14 +5,13 @@ import os.path as os_pth
 import json
 
 import pfrl
-from pfrl.agents import TRPO
 
 from braid_env import BraidEnvironment
 from curriculum_manager import CurriculumManager, EpisodeSuccessHook
 from metrics import MetricsTracker, MetricsEvaluationHook, MetricsStepHook
 from reformer_networks import create_reformer_policy, create_reformer_vf
 from feed_forward_networks import create_ffn_policy, create_ffn_vf, initialize_ffn
-#from trpo import MyTRPO as TRPO
+from trpo import MyTRPO as TRPO
 
 # Configure PyTorch for memory efficiency
 torch.backends.cuda.matmul.allow_tf32 = True  # Use TF32 precision
