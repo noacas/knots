@@ -219,10 +219,14 @@ def get_args():
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--gae-lambda', type=float, default=0.95)
-    parser.add_argument('--damping', type=float, default=1e-1)
-    parser.add_argument('--max-kl', type=float, default=1e-2)
-    parser.add_argument('--backtrack-coeff', type=float, default=0.8)
-    parser.add_argument('--max-backtracks', type=int, default=10)
+    parser.add_argument('--advantage-normalization', action='store_true', default=True,
+                        help='Normalize advantage if true')
+    parser.add_argument('--vf-coef', type=float, default=0.5,
+                        help="Value function coefficient")
+    parser.add_argument('--ent-coef', type=float, default=0.01,
+                        help="Entropy coefficient")
+    parser.add_argument('--max-grad-norm', type=float, default=0.5,
+                        help="Max gradient norm for clipping")
     # Training parameters
     parser.add_argument('--epoch', type=int, default=100)
     parser.add_argument('--step-per-epoch', type=int, default=30000)
@@ -314,26 +318,23 @@ def train_trpo(args=get_args()):
         hidden_sizes=[],  # No additional hidden layers after net
         device=args.device
     )
-    actor_critic = ActorCritic(actor, critic)
 
     # For discrete action space in TRPO
     dist_fn = torch.distributions.Categorical
 
-    # Create TRPO policy
+    # Create TRPO policy - updated for latest API
     policy = TRPOPolicy(
         actor=actor,
         critic=critic,
-        optim=torch.optim.Adam(actor_critic.parameters(), lr=args.lr),
+        optim=torch.optim.Adam(critic.parameters(), lr=args.lr),
         dist_fn=dist_fn,
         discount_factor=args.gamma,
         gae_lambda=args.gae_lambda,
         reward_normalization=True,
-        # TRPO specific parameters
-        damping=args.damping,
-        max_kl=args.max_kl,
-        backtrack_coeff=args.backtrack_coeff,
-        max_backtracks=args.max_backtracks,
-        action_space=env.action_space
+        advantage_normalization=args.advantage_normalization,
+        vf_coef=args.vf_coef,
+        ent_coef=args.ent_coef,
+        max_grad_norm=args.max_grad_norm
     )
 
     # Create collectors for training and testing
