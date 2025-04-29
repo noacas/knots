@@ -85,39 +85,40 @@ class BraidEnvironment:
         # self.n_braids_max+3: BraidRelation2 and ShiftRight
         self.steps_taken += 1
         should_punish = False
+        next_braid = None
 
         previous_braid = self.current_braid.clone().to(device=self.current_braid.device)
 
         if action == 0:
-            self.current_braid = smart_collapse(self.current_braid)
+            next_braid = smart_collapse(self.current_braid)
         elif action < self.n_braids_max:
             # Apply positive crossing σᵢ
             if len(self.current_braid) < self.n_letters_max - 1:
                 # this action is only valid if the braid will not surpass its maximum length after the move
-                self.current_braid = conjugation_markov_move(self.current_braid, action, 0)
+                next_braid = conjugation_markov_move(self.current_braid, action, 0)
             else:
                 # if the braid is at its maximum length, the action is invalid
                 should_punish = True
         elif action == self.n_braids_max:
-            self.current_braid = shift_left(self.current_braid)
+            next_braid = shift_left(self.current_braid)
         elif action == self.n_braids_max + 1:
-            self.current_braid = shift_right(self.current_braid)
+            next_braid = shift_right(self.current_braid)
         elif action == self.n_braids_max + 2:
             # Apply BraidRelation1 and ShiftRight
-            self.current_braid = braid_relation1(self.current_braid)
+            next_braid = braid_relation1(self.current_braid)
         elif action == self.n_braids_max + 3:
             # Apply BraidRelation2 and ShiftRight
-            self.current_braid = braid_relation2(self.current_braid)
+            next_braid = braid_relation2(self.current_braid)
         else:
             raise ValueError(f"Invalid action: {action}")
 
 
-        if len(self.current_braid) >= self.n_letters_max:
+        if len(next_braid) >= self.n_letters_max:
             # if the braid is at its maximum length, the episode is over
             pass
 
         # Check if done
-        self.success = torch.equal(self.current_braid, self.target_braid)
+        self.success = torch.equal(next_braid, self.target_braid)
         if self.success:
             logging.info("Found transformation! after %d steps", self.steps_taken)
         self.done = self.steps_taken >= self.max_steps
@@ -128,8 +129,9 @@ class BraidEnvironment:
             # if the action was invalid, apply a punishment
             reward = self.punishment_for_illegal_action
         else:
-            reward = self.calculate_reward(current_braid=previous_braid, next_braid=self.current_braid, target_braid=self.target_braid)
+            reward = self.calculate_reward(current_braid=previous_braid, next_braid=next_braid, target_braid=self.target_braid)
 
+        self.current_braid = next_braid
         return self.get_state(), reward, self.success, info
 
     def calculate_reward(self, current_braid, next_braid, target_braid) -> float:
