@@ -88,6 +88,5 @@ class MyTRPO(TRPO):
             # Fallback if CG fails
             print("Using gradient direction as fallback")
             torch.cuda.empty_cache()
-
             # Just use the gradient direction with a small step size
             return flat_gain_grads * 0.01

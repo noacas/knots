@@ -19,7 +19,7 @@ class BraidEnvironment:
         self.max_steps_in_generation = max_steps_in_generation
         self.n_braids_max = n_braids_max  # in action space
         self.n_letters_max = n_letters_max  # Maximum length of a braid
-        self.punishment_for_illegal_action = -4000 * self.n_braids_max
+        self.punishment_for_illegal_action = -400
 
         self.current_braid = torch.tensor([], dtype=torch.float)
         self.start_braid = torch.tensor([], dtype=torch.float)
