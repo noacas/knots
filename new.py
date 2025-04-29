@@ -9,6 +9,25 @@ import gymnasium as gym
 from gymnasium import spaces
 import logging
 
+import argparse
+import datetime
+import os
+import pprint
+
+import numpy as np
+import torch
+from torch import nn
+from torch.distributions import Distribution, Independent, Normal
+from torch.optim.lr_scheduler import LambdaLR
+
+from tianshou.data import CollectStats, ReplayBuffer, VectorReplayBuffer
+from tianshou.highlevel.logger import LoggerFactoryDefault
+from tianshou.policy import TRPOPolicy
+from tianshou.policy.base import BasePolicy
+from tianshou.trainer import OnpolicyTrainer
+from tianshou.utils.net.common import Net
+from tianshou.utils.net.continuous import ActorProb, Critic
+
 # Import Tianshou components
 from tianshou.data import Collector, VectorReplayBuffer
 from tianshou.env import DummyVectorEnv
@@ -310,26 +329,7 @@ def make_env(n_braids_max, n_letters_max, max_steps, max_steps_in_generation,
     )
 
 
-# Make tensor-compatible collector
-class TensorCollector(Collector):
-    """Collector that handles torch tensors directly without numpy conversion"""
-
-    def collect(self, *args, **kwargs):
-        """Override collect to add tensor support"""
-        result = super().collect(*args, **kwargs)
-        return result
-
-
-def train_trpo(args=get_args()):
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-
-    print(f"Using device: {args.device}")
-
-    # Create a sample environment to get dimensions
+def train_trpo(args: argparse.Namespace = get_args()) -> None:
     env = BraidEnvironment(
         n_braids_max=args.n_braids_max,
         n_letters_max=args.n_letters_max,
@@ -339,13 +339,6 @@ def train_trpo(args=get_args()):
         render_mode="human" if args.render else None,
         device=args.device
     )
-
-    # Seed everything for reproducibility
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-
-    # Create training and test environments
-    render_mode_train = "human" if args.render else None
     train_envs = DummyVectorEnv(
         [make_env(
             args.n_braids_max,
@@ -353,7 +346,7 @@ def train_trpo(args=get_args()):
             args.max_steps,
             args.max_steps_in_generation,
             args.potential_based_reward,
-            render_mode_train if i == 0 else None,  # Only render the first env if render is enabled
+            None,  # Only render the first env if render is enabled
             device=args.device
         ) for i in range(args.training_num)]
     )
@@ -368,95 +361,142 @@ def train_trpo(args=get_args()):
             device=args.device
         ) for _ in range(args.test_num)]
     )
-
-    # Seed training and test environments
-    train_envs.seed(args.seed)
-    test_envs.seed(args.seed)
-
-    # Get state and action information from environment
-    state_shape = env.observation_space.shape or env.observation_space.n
-    action_shape = env.action_space.shape or env.action_space.n
-
-    # Build networks for discrete action space - updated for newer Tianshou API
-    net = Net(
-        state_shape=state_shape,
+    args.state_shape = env.observation_space.shape or env.observation_space.n
+    args.action_shape = env.action_space.shape or env.action_space.n
+    # seed
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    # model
+    net_a = Net(
+        args.state_shape,
         hidden_sizes=args.hidden_sizes,
-        device=args.device
+        activation=nn.Tanh,
+        device=args.device,
     )
-    actor = Actor(
-        preprocess_net=net,
-        action_shape=action_shape,
-        hidden_sizes=[],  # No additional hidden layers after net
-        device=args.device
+    actor = ActorProb(
+        net_a,
+        args.action_shape,
+        unbounded=True,
+        device=args.device,
+    ).to(args.device)
+    net_c = Net(
+        args.state_shape,
+        hidden_sizes=args.hidden_sizes,
+        activation=nn.Tanh,
+        device=args.device,
     )
-    critic = Critic(
-        preprocess_net=net,
-        hidden_sizes=[],  # No additional hidden layers after net
-        device=args.device
-    )
+    critic = Critic(net_c, device=args.device).to(args.device)
+    torch.nn.init.constant_(actor.sigma_param, -0.5)
+    for m in list(actor.modules()) + list(critic.modules()):
+        if isinstance(m, torch.nn.Linear):
+            # orthogonal initialization
+            torch.nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
+            torch.nn.init.zeros_(m.bias)
+    # do last policy layer scaling, this will make initial actions have (close to)
+    # 0 mean and std, and will help boost performances,
+    # see https://arxiv.org/abs/2006.05990, Fig.24 for details
+    for m in actor.mu.modules():
+        if isinstance(m, torch.nn.Linear):
+            torch.nn.init.zeros_(m.bias)
+            m.weight.data.copy_(0.01 * m.weight.data)
 
-    # For discrete action space in TRPO
-    dist_fn = torch.distributions.Categorical
+    optim = torch.optim.Adam(critic.parameters(), lr=args.lr)
+    lr_scheduler = None
+    if args.lr_decay:
+        # decay learning rate to 0 linearly
+        max_update_num = np.ceil(args.step_per_epoch / args.step_per_collect) * args.epoch
 
-    # Create TRPO policy - updated for latest API
-    policy = TRPOPolicy(
+        lr_scheduler = LambdaLR(optim, lr_lambda=lambda epoch: 1 - epoch / max_update_num)
+
+    def dist(loc_scale: tuple[torch.Tensor, torch.Tensor]) -> Distribution:
+        loc, scale = loc_scale
+        return Independent(Normal(loc, scale), 1)
+
+    policy: TRPOPolicy = TRPOPolicy(
         actor=actor,
         critic=critic,
-        optim=torch.optim.Adam(critic.parameters(), lr=args.lr),
-        dist_fn=dist_fn,
+        optim=optim,
+        dist_fn=dist,
         discount_factor=args.gamma,
         gae_lambda=args.gae_lambda,
-        reward_normalization=True,
-        advantage_normalization=args.advantage_normalization,
-        vf_coef=args.vf_coef,
-        ent_coef=args.ent_coef,
-        max_grad_norm=args.max_grad_norm
+        reward_normalization=args.rew_norm,
+        action_scaling=True,
+        action_bound_method=args.bound_action_method,
+        lr_scheduler=lr_scheduler,
+        action_space=env.action_space,
+        advantage_normalization=args.norm_adv,
+        optim_critic_iters=args.optim_critic_iters,
+        max_kl=args.max_kl,
+        backtrack_coeff=args.backtrack_coeff,
+        max_backtracks=args.max_backtracks,
     )
 
-    # Create collectors for training and testing
-    train_collector = TensorCollector(
-        policy,
-        train_envs,
-        VectorReplayBuffer(args.step_per_collect, args.training_num)
+    # load a previous policy
+    if args.resume_path:
+        ckpt = torch.load(args.resume_path, map_location=args.device)
+        policy.load_state_dict(ckpt["model"])
+        train_envs.set_obs_rms(ckpt["obs_rms"])
+        test_envs.set_obs_rms(ckpt["obs_rms"])
+        print("Loaded agent from: ", args.resume_path)
+
+    # collector
+    buffer: Union[VectorReplayBuffer, ReplayBuffer]
+    if args.training_num > 1:
+        buffer = VectorReplayBuffer(args.buffer_size, len(train_envs))
+    else:
+        buffer = ReplayBuffer(args.buffer_size)
+    train_collector = Collector[CollectStats](policy, train_envs, buffer, exploration_noise=True)
+    test_collector = Collector[CollectStats](policy, test_envs)
+
+    # log
+    now = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
+    args.algo_name = "trpo"
+    log_name = os.path.join(args.task, args.algo_name, str(args.seed), now)
+    log_path = os.path.join(args.logdir, log_name)
+
+    # logger
+    logger_factory = LoggerFactoryDefault()
+    if args.logger == "wandb":
+        logger_factory.logger_type = "wandb"
+        logger_factory.wandb_project = args.wandb_project
+    else:
+        logger_factory.logger_type = "tensorboard"
+
+    logger = logger_factory.create_logger(
+        log_dir=log_path,
+        experiment_name=log_name,
+        run_id=args.resume_id,
+        config_dict=vars(args),
     )
-    test_collector = TensorCollector(policy, test_envs)
 
-    # Create logger
-    log_path = os.path.join(args.logdir, 'BraidEnv', 'trpo')
-    os.makedirs(log_path, exist_ok=True)
-    writer = SummaryWriter(log_path)
-    logger = TensorboardLogger(writer)
+    def save_best_fn(policy: BasePolicy) -> None:
+        state = {"model": policy.state_dict(), "obs_rms": train_envs.get_obs_rms()}
+        torch.save(state, os.path.join(log_path, "policy.pth"))
 
-    # Training
-    result = onpolicy_trainer(
-        policy=policy,
-        train_collector=train_collector,
-        test_collector=test_collector,
-        max_epoch=args.epoch,
-        step_per_epoch=args.step_per_epoch,
-        repeat_per_collect=args.repeat_per_collect,
-        episode_per_test=args.test_num,
-        batch_size=args.batch_size,
-        step_per_collect=args.step_per_collect,
-        save_best_fn=lambda policy: torch.save(policy.state_dict(), os.path.join(log_path, 'policy.pth')),
-        save_checkpoint_fn=lambda epoch, env_step, gradient_step: torch.save({
-            'epoch': epoch + 1,
-            'env_step': env_step,
-            'gradient_step': gradient_step,
-            'policy': policy.state_dict(),
-        }, os.path.join(log_path, f'checkpoint_{epoch}.pth')),
-        logger=logger,
-    )
+    if not args.watch:
+        # trainer
+        result = OnpolicyTrainer(
+            policy=policy,
+            train_collector=train_collector,
+            test_collector=test_collector,
+            max_epoch=args.epoch,
+            step_per_epoch=args.step_per_epoch,
+            repeat_per_collect=args.repeat_per_collect,
+            episode_per_test=args.test_num,
+            batch_size=args.batch_size,
+            step_per_collect=args.step_per_collect,
+            save_best_fn=save_best_fn,
+            logger=logger,
+            test_in_train=False,
+        ).run()
+        pprint.pprint(result)
 
-    # Clean up
-    train_envs.close()
-    test_envs.close()
-    env.close()
-
-    return result, policy
+    # Let's watch its performance!
+    test_envs.seed(args.seed)
+    test_collector.reset()
+    collector_stats = test_collector.collect(n_episode=args.test_num, render=args.render)
+    print(collector_stats)
 
 
-if __name__ == '__main__':
-    # Run training
-    result, policy = train_trpo()
-    print(f'Finished training! Use policy.forward() to utilize the trained policy.')
+if __name__ == "__main__":
+    train_trpo()
