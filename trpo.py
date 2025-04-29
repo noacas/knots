@@ -32,7 +32,7 @@ class MyTRPO(TRPO):
         )
 
         # Create graph for all gradients to ensure proper gradient flow
-        kl_grads = torch.autograd.grad([kl], policy_params, create_graph=True)
+        kl_grads = torch.autograd.grad([kl], policy_params, create_graph=True, allow_unused=True)
         assert all(
             g is not None for g in kl_grads
         ), "The gradient contains None. The policy may have unused parameters."
@@ -54,7 +54,7 @@ class MyTRPO(TRPO):
                 return vec * 0.1
 
         # Compute the surrogate loss gradient
-        gain_grads = torch.autograd.grad([gain], policy_params)
+        gain_grads = torch.autograd.grad([gain], policy_params, create_graph=True, allow_unused=True)
         flat_gain_grads = _flatten_and_concat_variables(gain_grads).detach()
 
         # Clear memory before CG
