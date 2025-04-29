@@ -100,7 +100,7 @@ def parse_args():
     parser.add_argument(
         "--use-reformer",
         action="store_true",
-        default=True,
+        default=False,
         help="Use Reformer networks instead of regular FFN",
     )
     parser.add_argument(
@@ -124,7 +124,7 @@ def parse_args():
     parser.add_argument(
         "--use-curriculum",
         action="store_true",
-        default=True,
+        default=False,
         help="Use curriculum learning",
     )
     parser.add_argument(
