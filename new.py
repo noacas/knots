@@ -410,19 +410,22 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
             device=args.device,
         )
     else:
-        actor = Net(
-            args.state_shape,
-            action_shape=args.action_shape,
+        net = Net(
+            state_shape=args.state_shape,
             hidden_sizes=args.hidden_sizes,
             device=args.device
         )
-        net_a = Net(
-            args.state_shape,
-            hidden_sizes=args.hidden_sizes,
-            activation=nn.Tanh,
-            device=args.device,
+        actor = Actor(
+            preprocess_net=net,
+            action_shape=args.action_shape,
+            hidden_sizes=[],  # No additional hidden layers after net
+            device=args.device
         )
-        critic = Critic(net_a, device=args.device).to(args.device)
+        critic = Critic(
+            preprocess_net=net,
+            hidden_sizes=[],  # No additional hidden layers after net
+            device=args.device
+        )
 
 
     for m in list(actor.modules()) + list(critic.modules()):
@@ -481,10 +484,6 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
     writer = SummaryWriter(log_path)
     logger = TensorboardLogger(writer)
 
-    def save_best_fn(policy: BasePolicy) -> None:
-        state = {"model": policy.state_dict(), "obs_rms": train_envs.get_obs_rms()}
-        torch.save(state, os.path.join(log_path, "policy.pth"))
-
     if not args.watch:
         # trainer
         result = OnpolicyTrainer(
@@ -497,7 +496,7 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
             episode_per_test=args.test_num,
             batch_size=args.batch_size,
             step_per_collect=args.step_per_collect,
-            save_best_fn=save_best_fn,
+            save_best_fn=lambda policy: torch.save(policy.state_dict(), os.path.join(log_path, 'policy.pth')),
             logger=logger,
             test_in_train=False,
         ).run()
