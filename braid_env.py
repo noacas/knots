@@ -1,7 +1,11 @@
 from typing import Tuple
 
 import logging
+
+import numpy as np
 import torch
+
+import gymnasium as gym
 
 from braid_relation import shift_left, shift_right, braid_relation1, braid_relation2
 from markov_move import conjugation_markov_move
@@ -11,10 +15,11 @@ from smart_collapse import smart_collapse
 from subsequence_similarity import subsequence_similarity
 
 
-class BraidEnvironment:
+class BraidEnvironment(gym.Env):
+    metadata = {"render_modes": ["human"]}
+
     def __init__(self, n_braids_max=20, n_letters_max=40, max_steps=100,
-                 max_steps_in_generation=30, potential_based_reward=False,
-                 should_randomize_cur_and_target=True):
+                 max_steps_in_generation=30, device="mps", render_mode=None, potential_based_reward=False):
         self.max_steps = max_steps
         self.max_steps_in_generation = max_steps_in_generation
         self.n_braids_max = n_braids_max  # in action space
@@ -32,8 +37,14 @@ class BraidEnvironment:
         if potential_based_reward:
             self.reward_shaper = RewardShaper()
 
-        if should_randomize_cur_and_target:
-            self.reset()
+        self.observation_space = gym.spaces.Box(-(n_braids_max - 1), n_braids_max - 1, shape=(2 * n_letters_max,), dtype=np.int32)
+        self.action_space = gym.spaces.Discrete(n_braids_max + 4)
+
+        self.render_mode = render_mode
+
+        self.device = device
+
+        self.reset()
 
     def reset(self) -> torch.Tensor:
         # Initialize random start and target braids
@@ -60,19 +71,6 @@ class BraidEnvironment:
         # Combine current braid and target braid as state, each is padded to max length with zeros
         cur, tar = self.get_padded_braids()
         return torch.cat([cur, tar])
-
-    def get_model_dim(self) -> int:
-        return self.n_letters_max * 2  # length of the state (2 padded braids)
-
-    def get_action_space(self) -> int:
-        # Actions:
-        # 0: SmartCollapse
-        # 1-self.n_braids_max-1: Markov moves of type 1 (σᵢ)
-        # self.n_braids_max: ShiftLeft
-        # self.n_braids_max+1: ShiftRight
-        # self.n_braids_max+2: BraidRelation1 and ShiftRight
-        # self.n_braids_max+3: BraidRelation2 and ShiftRight
-        return self.n_braids_max + 4
 
     def step(self, action: int) -> Tuple[torch.Tensor, float, bool, dict]: #, float]:
         # Apply the selected Markov move to the current braid
