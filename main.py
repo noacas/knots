@@ -262,7 +262,7 @@ def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval
     model = TRPO("MlpPolicy",
                  env,
                  verbose=1,
-                 device="mps",
+                 device=args["device"],
                  policy_kwargs=policy_kwargs,
                  learning_rate=1e-3,
                  stats_window_size=100,
