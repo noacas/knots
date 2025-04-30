@@ -2,6 +2,7 @@ import argparse
 import os
 import numpy as np
 import torch
+from tianshou.utils import TensorboardLogger
 from torch.utils.tensorboard import SummaryWriter
 from typing import Tuple, Dict, Any, Optional, Union
 
@@ -16,19 +17,13 @@ from torch import nn
 from torch.distributions import Distribution, Independent, Normal
 from torch.optim.lr_scheduler import LambdaLR
 
-from tianshou.data import CollectStats, ReplayBuffer, VectorReplayBuffer
-from tianshou.highlevel.logger import LoggerFactoryDefault
+from tianshou.data import ReplayBuffer, Collector, VectorReplayBuffer
 from tianshou.policy import TRPOPolicy
 from tianshou.policy.base import BasePolicy
 from tianshou.trainer import OnpolicyTrainer
 from tianshou.utils.net.common import Net
-from tianshou.utils.net.continuous import ActorProb, Critic
-
-# Import Tianshou components
-from tianshou.data import Collector, VectorReplayBuffer
+from tianshou.utils.net.discrete import Actor, Critic
 from tianshou.env import DummyVectorEnv
-from tianshou.trainer import onpolicy_trainer
-from tianshou.utils import TensorboardLogger
 
 # Import BraidEnvironment components - you'll need to adjust these imports based on your project structure
 from braid_relation import shift_left, shift_right, braid_relation1, braid_relation2
@@ -368,19 +363,16 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
         hidden_sizes=args.hidden_sizes,
         activation=nn.Tanh,
     )
-    actor = ActorProb(
+    actor = Actor(
         net_a,
         args.action_shape,
-        unbounded=True,
         device=args.device,
     ).to(args.device)
-    net_c = Net(
-        args.state_shape,
+    critic = Critic(
+        net_a,
         hidden_sizes=args.hidden_sizes,
-        activation=nn.Tanh,
         device=args.device,
     )
-    critic = Critic(net_c, device=args.device).to(args.device)
     torch.nn.init.constant_(actor.sigma_param, -0.5)
     for m in list(actor.modules()) + list(critic.modules()):
         if isinstance(m, torch.nn.Linear):
@@ -403,15 +395,11 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
 
         lr_scheduler = LambdaLR(optim, lr_lambda=lambda epoch: 1 - epoch / max_update_num)
 
-    def dist(loc_scale: tuple[torch.Tensor, torch.Tensor]) -> Distribution:
-        loc, scale = loc_scale
-        return Independent(Normal(loc, scale), 1)
-
     policy: TRPOPolicy = TRPOPolicy(
         actor=actor,
         critic=critic,
         optim=optim,
-        dist_fn=dist,
+        dist_fn=torch.distributions.Categorical,
         discount_factor=args.gamma,
         gae_lambda=args.gae_lambda,
         reward_normalization=args.rew_norm,
@@ -440,29 +428,14 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
         buffer = VectorReplayBuffer(args.buffer_size, len(train_envs))
     else:
         buffer = ReplayBuffer(args.buffer_size)
-    train_collector = Collector(policy, train_envs, buffer, exploration_noise=True)
+    train_collector = Collector(policy, train_envs, buffer)
     test_collector = Collector(policy, test_envs)
 
-    # log
-    now = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
-    args.algo_name = "trpo"
-    log_name = os.path.join(args.task, args.algo_name, str(args.seed), now)
-    log_path = os.path.join(args.logdir, log_name)
-
-    # logger
-    logger_factory = LoggerFactoryDefault()
-    if args.logger == "wandb":
-        logger_factory.logger_type = "wandb"
-        logger_factory.wandb_project = args.wandb_project
-    else:
-        logger_factory.logger_type = "tensorboard"
-
-    logger = logger_factory.create_logger(
-        log_dir=log_path,
-        experiment_name=log_name,
-        run_id=args.resume_id,
-        config_dict=vars(args),
-    )
+    # Create logger
+    log_path = os.path.join(args.logdir, 'BraidEnv', 'trpo')
+    os.makedirs(log_path, exist_ok=True)
+    writer = SummaryWriter(log_path)
+    logger = TensorboardLogger(writer)
 
     def save_best_fn(policy: BasePolicy) -> None:
         state = {"model": policy.state_dict(), "obs_rms": train_envs.get_obs_rms()}
@@ -494,4 +467,9 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
     train_trpo()
