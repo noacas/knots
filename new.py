@@ -63,20 +63,17 @@ class BraidEnvironment(gym.Env):
 
     def __init__(self, n_braids_max=20, n_letters_max=40, max_steps=100,
                  max_steps_in_generation=30, potential_based_reward=False,
-                 should_randomize_cur_and_target=True, render_mode="human",
-                 device='cuda'):
+                 should_randomize_cur_and_target=True, render_mode="human"):
         self.max_steps = max_steps
         self.max_steps_in_generation = max_steps_in_generation
         self.n_braids_max = n_braids_max  # in action space
         self.n_letters_max = n_letters_max  # Maximum length of a braid
         self.punishment_for_illegal_action = -400
         self.render_mode = render_mode
-        self.device = device  # Store the device for tensor operations
 
-        # Initialize tensors on the specified device
-        self.current_braid = torch.tensor([], dtype=torch.float, device=self.device)
-        self.start_braid = torch.tensor([], dtype=torch.float, device=self.device)
-        self.target_braid = torch.tensor([], dtype=torch.float, device=self.device)
+        self.current_braid = torch.tensor([], dtype=torch.float)
+        self.start_braid = torch.tensor([], dtype=torch.float)
+        self.target_braid = torch.tensor([], dtype=torch.float)
         self.steps_taken = 0
         self.success = False
         self.done = False
@@ -108,16 +105,10 @@ class BraidEnvironment(gym.Env):
             n_max=self.n_braids_max, n_max_second=self.n_letters_max, n_moves=self.max_steps_in_generation
         )
 
-        # Ensure tensors are on the correct device
-        self.current_braid = self.current_braid.to(self.device)
-        self.target_braid = self.target_braid.to(self.device)
-        self.start_braid = self.current_braid.clone()
-
         self.steps_taken = 0
         self.success = False
         self.done = False
 
-        # Get state tensor (on the device)
         state_tensor = self.get_state()
 
         if self.reward_shaper is not None:
@@ -140,15 +131,15 @@ class BraidEnvironment(gym.Env):
         pass
 
     def get_padded_braid(self, braid: torch.Tensor) -> torch.Tensor:
-        return torch.nn.functional.pad(braid, (0, self.n_letters_max - len(braid))).to(self.device)
+        return torch.nn.functional.pad(braid, (0, self.n_letters_max - len(braid)))
 
     def get_padded_braids(self) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.get_padded_braid(self.current_braid), self.get_padded_braid(self.target_braid)
 
-    def get_state(self) -> torch.Tensor:
+    def get_state(self) -> np.ndarray:
         # Combine current braid and target braid as state, each is padded to max length with zeros
         cur, tar = self.get_padded_braids()
-        return torch.cat([cur, tar]).to(self.device)
+        return torch.cat([cur, tar]).cpu().numpy()
 
     def get_model_dim(self) -> int:
         return self.n_letters_max * 2  # length of the state (2 padded braids)
@@ -175,8 +166,7 @@ class BraidEnvironment(gym.Env):
         self.steps_taken += 1
         should_punish = False
 
-        # Ensure all necessary tensors are on the correct device
-        previous_braid = self.current_braid.clone().to(self.device)
+        previous_braid = self.current_braid.clone()
 
         # Apply the selected action
         if action == 0:
@@ -203,15 +193,9 @@ class BraidEnvironment(gym.Env):
         else:
             raise ValueError(f"Invalid action: {action}")
 
-        # Move next_braid to the device
-        next_braid = next_braid.to(self.device)
-
         if len(next_braid) >= self.n_letters_max:
             # if the braid is at its maximum length, the episode is over
             pass
-
-        # Move target_braid to the device for comparison
-        self.target_braid = self.target_braid.to(self.device)
 
         # Check if done
         self.success = torch.equal(next_braid, self.target_braid)
@@ -246,16 +230,11 @@ class BraidEnvironment(gym.Env):
         if self.render_mode == "human":
             self.render()
 
-        # Get state tensor (on the device)
         state_tensor = self.get_state()
 
         return state_tensor, reward, terminated, truncated, info
 
     def calculate_reward(self, current_braid, next_braid, target_braid) -> float:
-        # Ensure all tensors are on the same device
-        current_braid = current_braid.to(self.device)
-        next_braid = next_braid.to(self.device)
-        target_braid = target_braid.to(self.device)
 
         if self.reward_shaper is None:
             # if no reward shaper is used, the reward is based on the similarity to the target braid
@@ -337,7 +316,7 @@ def get_args():
 
 
 def make_env(n_braids_max, n_letters_max, max_steps, max_steps_in_generation,
-             potential_based_reward, render_mode=None, device='cuda'):
+             potential_based_reward, render_mode=None):
     """Function to create environment instances for vectorized environments"""
     return lambda: BraidEnvironment(
         n_braids_max=n_braids_max,
@@ -346,7 +325,6 @@ def make_env(n_braids_max, n_letters_max, max_steps, max_steps_in_generation,
         max_steps_in_generation=max_steps_in_generation,
         potential_based_reward=potential_based_reward,
         render_mode=render_mode,
-        device=device
     )
 
 
@@ -358,7 +336,6 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
         max_steps_in_generation=args.max_steps_in_generation,
         potential_based_reward=args.potential_based_reward,
         render_mode="human" if args.render else None,
-        device=args.device
     )
     train_envs = DummyVectorEnv(
         [make_env(
@@ -368,7 +345,6 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
             args.max_steps_in_generation,
             args.potential_based_reward,
             None,  # Only render the first env if render is enabled
-            device=args.device
         ) for i in range(args.training_num)]
     )
     test_envs = DummyVectorEnv(
@@ -379,7 +355,6 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
             args.max_steps_in_generation,
             args.potential_based_reward,
             None,  # Don't render test environments
-            device=args.device
         ) for _ in range(args.test_num)]
     )
     args.state_shape = env.observation_space.shape or env.observation_space.n
@@ -392,7 +367,6 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
         args.state_shape,
         hidden_sizes=args.hidden_sizes,
         activation=nn.Tanh,
-        device=args.device,
     )
     actor = ActorProb(
         net_a,
