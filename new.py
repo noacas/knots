@@ -29,6 +29,7 @@ from tianshou.env import DummyVectorEnv
 from braid_relation import shift_left, shift_right, braid_relation1, braid_relation2
 from markov_move import conjugation_markov_move
 from random_knot import two_random_equivalent_knots
+from reformer_networks import ReformerKnots
 from reward_reshaper import RewardShaper
 from smart_collapse import smart_collapse
 from subsequence_similarity import subsequence_similarity
@@ -358,21 +359,48 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     # model
-    net_a = Net(
-        args.state_shape,
-        hidden_sizes=args.hidden_sizes,
-        activation=nn.Tanh,
-    )
-    actor = Actor(
-        net_a,
-        args.action_shape,
-        device=args.device,
-    ).to(args.device)
-    critic = Critic(
-        net_a,
-        hidden_sizes=args.hidden_sizes,
-        device=args.device,
-    )
+    if args.use_reformer:
+        net_a = ReformerKnots(
+            dim=args.reformer_dim,
+            depth=args.reformer_depth,
+            max_seq_len=args.state_shape,
+            heads=args.reformer_heads,
+            bucket_size=min(64, args.state_shape // 2 if args.state_shape > 4 else args.state_shape),
+            n_hashes=4,
+            ff_chunks=10,
+            lsh_dropout=0.1,
+            causal=False,  # Non-causal for braid self-attention
+            n_local_attn_heads=2,
+            use_full_attn=(args.state_shape <= 64),  # Use full attention for small braids
+            output_dim=args.hidden_sizes,
+        )
+        actor = Actor(
+            net_a,
+            action_shape=args.action_shape,
+            hidden_sizes=args.hidden_sizes,
+            device=args.device,
+        ).to(args.device)
+        critic = Critic(
+            net_a,
+            hidden_sizes=args.hidden_sizes,
+            device=args.device,
+        )
+    else:
+        actor = Net(
+            args.state_shape,
+            action_shape=args.action_shape,
+            hidden_sizes=args.hidden_sizes,
+            device=args.device
+        )
+        net_a = Net(
+            args.state_shape,
+            hidden_sizes=args.hidden_sizes,
+            activation=nn.Tanh,
+            device=args.device,
+        )
+        critic = Critic(net_a, device=args.device).to(args.device)
+
+
     for m in list(actor.modules()) + list(critic.modules()):
         if isinstance(m, torch.nn.Linear):
             # orthogonal initialization
