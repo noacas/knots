@@ -59,7 +59,9 @@ class BraidEnvironment(gym.Env):
 
     def __init__(self, n_braids_max=20, n_letters_max=40, max_steps=100,
                  max_steps_in_generation=30, potential_based_reward=False,
-                 should_randomize_cur_and_target=True, render_mode="human"):
+                 should_randomize_cur_and_target=True, render_mode="human",
+                 device="cpu"  # Added device parameter
+                 ):
         self.max_steps = max_steps
         self.max_steps_in_generation = max_steps_in_generation
         self.n_braids_max = n_braids_max  # in action space
@@ -87,6 +89,8 @@ class BraidEnvironment(gym.Env):
             dtype=np.float32
         )
         self.action_space = spaces.Discrete(n_braids_max + 4)
+
+        self.device = device
 
         if should_randomize_cur_and_target:
             self.reset()
@@ -132,10 +136,10 @@ class BraidEnvironment(gym.Env):
     def get_padded_braids(self) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.get_padded_braid(self.current_braid), self.get_padded_braid(self.target_braid)
 
-    def get_state(self) -> np.ndarray:
+    def get_state(self) -> torch.Tensor:
         # Combine current braid and target braid as state, each is padded to max length with zeros
         cur, tar = self.get_padded_braids()
-        return torch.cat([cur, tar]).cpu().numpy()
+        return torch.cat([cur, tar]).to(self.device)
 
     def get_model_dim(self) -> int:
         return self.n_letters_max * 2  # length of the state (2 padded braids)
@@ -336,7 +340,7 @@ def get_args():
 
 
 def make_env(n_braids_max, n_letters_max, max_steps, max_steps_in_generation,
-             potential_based_reward, render_mode=None):
+             potential_based_reward, render_mode=None, device="cpu") -> BraidEnvironment:
     """Function to create environment instances for vectorized environments"""
     return lambda: BraidEnvironment(
         n_braids_max=n_braids_max,
@@ -345,6 +349,7 @@ def make_env(n_braids_max, n_letters_max, max_steps, max_steps_in_generation,
         max_steps_in_generation=max_steps_in_generation,
         potential_based_reward=potential_based_reward,
         render_mode=render_mode,
+        device=device
     )
 
 
