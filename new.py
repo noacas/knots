@@ -116,8 +116,7 @@ class BraidEnvironment(gym.Env):
             self.reward_shaper.reset(self.max_steps)
 
         info = {}
-        state = state_tensor.cpu().detach().numpy()
-        return state, info
+        return state_tensor, info
 
     def render(self):
         if self.render_mode == "human":
