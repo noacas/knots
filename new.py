@@ -373,7 +373,6 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
         hidden_sizes=args.hidden_sizes,
         device=args.device,
     )
-    torch.nn.init.constant_(actor.sigma_param, -0.5)
     for m in list(actor.modules()) + list(critic.modules()):
         if isinstance(m, torch.nn.Linear):
             # orthogonal initialization
