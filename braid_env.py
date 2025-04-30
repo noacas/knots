@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Dict, Any, Optional, Union
 
 import logging
 
@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 import gymnasium as gym
+from numpy import ndarray
 
 from braid_relation import shift_left, shift_right, braid_relation1, braid_relation2
 from markov_move import conjugation_markov_move
@@ -46,20 +47,40 @@ class BraidEnvironment(gym.Env):
 
         self.reset()
 
-    def reset(self) -> torch.Tensor:
+    def reset(self, *, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None) -> tuple[
+        ndarray, dict[Any, Any]]:
         # Initialize random start and target braids
+        super().reset(seed=seed)
+
+        # Get tensors from the knot generator
         self.current_braid, self.target_braid = two_random_equivalent_knots(
             n_max=self.n_braids_max, n_max_second=self.n_letters_max, n_moves=self.max_steps_in_generation
         )
-        self.start_braid = self.current_braid.clone()
+
         self.steps_taken = 0
         self.success = False
         self.done = False
+
         state = self.get_state()
+
         if self.reward_shaper is not None:
             # Reset the reward shaper for a new episode
             self.reward_shaper.reset(self.max_steps)
-        return state
+
+        info = {}
+        return state, info
+
+    def render(self):
+        if self.render_mode == "human":
+            # Simple rendering - just print the current and target braids
+            print(f"Current braid: {self.current_braid}")
+            print(f"Target braid: {self.target_braid}")
+            print(f"Steps taken: {self.steps_taken}")
+        return None
+
+    def close(self):
+        # Nothing to clean up
+        pass
 
     def get_padded_braid(self, braid: torch.Tensor) -> torch.Tensor:
         return torch.nn.functional.pad(braid, (0, self.n_letters_max - len(braid)))
@@ -67,12 +88,12 @@ class BraidEnvironment(gym.Env):
     def get_padded_braids(self) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.get_padded_braid(self.current_braid), self.get_padded_braid(self.target_braid)
 
-    def get_state(self) -> torch.Tensor:
+    def get_state(self) -> np.ndarray:
         # Combine current braid and target braid as state, each is padded to max length with zeros
         cur, tar = self.get_padded_braids()
-        return torch.cat([cur, tar])
+        return torch.cat([cur, tar]).numpy()
 
-    def step(self, action: int) -> Tuple[torch.Tensor, float, bool, dict]: #, float]:
+    def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         # Apply the selected Markov move to the current braid
         # Actions:
         # 0: SmartCollapse
@@ -119,8 +140,11 @@ class BraidEnvironment(gym.Env):
         self.success = torch.equal(next_braid, self.target_braid)
         if self.success:
             logging.info("Found transformation! after %d steps", self.steps_taken)
-        self.done = self.steps_taken >= self.max_steps
-        info = {"needs_reset": self.steps_taken >= self.max_steps}
+
+        terminated = self.success  # Episode ends successfully when braids match
+        truncated = self.steps_taken >= self.max_steps  # Episode is truncated when max steps reached
+
+        info = {"success": self.success}
 
         # Calculate reward based on similarity to target
         if should_punish:
@@ -129,8 +153,19 @@ class BraidEnvironment(gym.Env):
         else:
             reward = self.calculate_reward(current_braid=previous_braid, next_braid=next_braid, target_braid=self.target_braid)
 
+        # Add success reward
+        if self.success:
+            reward += 1000  # Large positive reward for success
+
         self.current_braid = next_braid
-        return self.get_state(), reward, self.success, info
+
+        # Render if needed
+        if self.render_mode == "human":
+            self.render()
+
+        state = self.get_state()
+
+        return state, reward, terminated, truncated, info
 
     def calculate_reward(self, current_braid, next_braid, target_braid) -> float:
         if self.reward_shaper is None:

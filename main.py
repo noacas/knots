@@ -3,26 +3,25 @@ import argparse
 import logging
 import os.path as os_pth
 import json
-
-import pfrl
-
-from braid_env import BraidEnvironment
 from curriculum_manager import CurriculumManager, EpisodeSuccessHook
 from metrics import MetricsTracker, MetricsEvaluationHook, MetricsStepHook
-from reformer_networks import create_reformer_policy, create_reformer_vf
-from feed_forward_networks import create_ffn_policy, create_ffn_vf, initialize_ffn
-from trpo import MyTRPO as TRPO
 
-# Configure PyTorch for memory efficiency
-torch.backends.cuda.matmul.allow_tf32 = True  # Use TF32 precision
-torch.backends.cudnn.benchmark = True  # Use cuDNN autotuner
-torch.cuda.empty_cache()  # Clear any existing cached memory
+
+from tqdm.rich import tqdm
+
+tqdm.pandas()
+
+from sb3_contrib import TRPO
+
+from braid_env import BraidEnvironment
+from reformer_networks import ReformerFeatureExtractor
+
 
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--gpu", type=int, default=-1, help="GPU device ID, 0 for GPU, -1 to use CPUs only."
+        "--device", type=str, default="mps", help="mps, cuda, or cpu"
     )
     parser.add_argument("--seed", type=int, default=0, help="Random seed [0, 2 ** 32)")
     parser.add_argument(
@@ -151,7 +150,7 @@ def parse_args():
     return args
 
 
-def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000,
+def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval=10000,
         eval_n_runs=100, demo=False, load="", load_pretrained=False,
         trpo_update_interval=5000, log_level=logging.INFO,
         current_braid_length=20, target_braid_length=40,
@@ -164,7 +163,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
 
     Args:
         seed (int): Random seed
-        gpu (int): GPU device ID, 0 for GPU, -1 to use CPUs only
+        device (str): The device to use (mps, cuda, or cpu)
         outdir (str): Directory path to save output files
         steps (int): Total time steps for training
         eval_interval (int): Interval between evaluation phases in steps
@@ -190,7 +189,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
     # Create a dictionary of arguments for compatibility with existing code
     args = {
         "seed": seed,
-        "gpu": gpu,
+        "device": device,
         "outdir": outdir,
         "steps": steps,
         "eval_interval": eval_interval,
@@ -220,12 +219,11 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
     # Set up logging
     logging.basicConfig(level=args["log_level"])
 
-    pfrl.utils.set_random_seed(args["seed"])
-    args["outdir"] = pfrl.experiments.prepare_output_dir(args, args["outdir"])
-    metrics_tracker = MetricsTracker(os_pth.join(args["outdir"], 'metrics'))
-    evaluation_hook = MetricsEvaluationHook(metrics_tracker, args["outdir"])
-    step_hook = MetricsStepHook(metrics_tracker)
-    step_hooks = [step_hook]
+    # args["outdir"] = pfrl.experiments.prepare_output_dir(args, args["outdir"])
+    # metrics_tracker = MetricsTracker(os_pth.join(args["outdir"], 'metrics'))
+    # evaluation_hook = MetricsEvaluationHook(metrics_tracker, args["outdir"])
+    # step_hook = MetricsStepHook(metrics_tracker)
+    # step_hooks = [step_hook]
 
     curriculum_manager = None
     max_steps_in_generation = args["max_steps_in_generation"]
@@ -237,7 +235,7 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
             save_dir=args["outdir"],
         )
         max_steps_in_generation = args["initial_steps_in_generation"]
-        step_hooks.append(EpisodeSuccessHook(curriculum_manager))
+        #step_hooks.append(EpisodeSuccessHook(curriculum_manager))
 
     env = BraidEnvironment(
         n_braids_max=args["current_braid_length"],
@@ -245,90 +243,39 @@ def run(seed=0, gpu=-1, outdir="results", steps=5 * 10 ** 6, eval_interval=10000
         max_steps=args["max_steps_for_braid"],
         max_steps_in_generation=max_steps_in_generation,
         potential_based_reward=args["potential_based_reward"],
+        device=args["device"],
     )
     timestep_limit = env.max_steps
-    obs_size = env.get_model_dim()
-    action_size = env.get_action_space()
-    print("Observation space:", obs_size)
-    print("Action space:", action_size)
 
-    # Normalize observations based on their empirical mean and variance
-    obs_normalizer = pfrl.nn.EmpiricalNormalization(
-        obs_size, clip_threshold=5
-    )
-
-    # Create networks based on configuration
+    policy_kwargs = None
     if args["use_reformer"]:
-        print("Using Reformer networks")
-        policy = create_reformer_policy(obs_size, action_size, reformer_depth, reformer_heads, reformer_dim)
-        vf = create_reformer_vf(obs_size, reformer_depth, reformer_heads, reformer_dim)
-    else:
-        print("Using regular feed-forward networks")
-        # Original FFN implementation
-        policy = create_ffn_policy(obs_size, action_size)
-        vf = create_ffn_vf(obs_size)
-        initialize_ffn(policy, vf)
+        policy_kwargs = {
+            "features_extractor_class": ReformerFeatureExtractor,
+            "features_extractor_kwargs": {
+                "features_dim": 256,
+                "depth": args["reformer_depth"],
+                "heads": args["reformer_heads"],
+            },
+            "net_arch": dict(pi=[64, 32], vf=[64, 32]),
+        }
 
-    # TRPO's policy is optimized via CG and line search, so it doesn't require
-    # an Optimizer. Only the value function needs it.
-    vf_opt = torch.optim.Adam(vf.parameters(), lr=3e-4)
+    model = TRPO("MlpPolicy",
+                 env,
+                 verbose=1,
+                 device="mps",
+                 policy_kwargs=policy_kwargs,
+                 learning_rate=1e-3,
+                 stats_window_size=100,
+                 tensorboard_log=os_pth.join(args["outdir"], "tensorboard"),
+                 gae_lambda=0.97,
+                 gamma=0.95,
+                 )
+    model.learn(total_timesteps=10_000, log_interval=4, progress_bar=True)
+    model.save(outdir)
 
-    # Hyperparameters in http://arxiv.org/abs/1709.06560
-    agent = TRPO(
-        policy=policy,
-        vf=vf,
-        vf_optimizer=vf_opt,
-        obs_normalizer=obs_normalizer,
-        gpu=args["gpu"],
-        update_interval=args["trpo_update_interval"],
-        max_kl=0.01,
-        conjugate_gradient_max_iter=20,
-        conjugate_gradient_damping=1e-1,
-        gamma=0.95,
-        lambd=0.97,
-        vf_epochs=10,
-        entropy_coef=0.01,
-    )
-
-    if args["load"] or args.get("load_pretrained", False):
-        agent.load(args["load"])
-
-    if args["demo"]:
-        eval_stats = pfrl.experiments.eval_performance(
-            env=env,
-            agent=agent,
-            n_steps=None,
-            n_episodes=args["eval_n_runs"],
-            max_episode_len=timestep_limit,
-        )
-        print(
-            "n_runs: {} mean: {} median: {} stdev {}".format(
-                args["eval_n_runs"],
-                eval_stats["mean"],
-                eval_stats["median"],
-                eval_stats["stdev"],
-            )
-        )
-        with open(os_pth.join(args["outdir"], "demo_scores.json"), "w") as f:
-            json.dump(eval_stats, f)
-    else:
-        pfrl.experiments.train_agent_with_evaluation(
-            agent=agent,
-            env=env,
-            eval_env=env,
-            outdir=args["outdir"],
-            steps=args["steps"],
-            eval_n_steps=None,
-            eval_n_episodes=args["eval_n_runs"],
-            eval_interval=args["eval_interval"],
-            train_max_episode_len=timestep_limit,
-            step_hooks=step_hooks,
-            evaluation_hooks=[evaluation_hook],
-        )
-
-    metrics_tracker.plot_learning_curves()
-    if curriculum_manager is not None:
-        curriculum_manager.plot_curriculum_history()
+    # metrics_tracker.plot_learning_curves()
+    # if curriculum_manager is not None:
+    #     curriculum_manager.plot_curriculum_history()
 
 
 def main():

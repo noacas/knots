@@ -1,19 +1,27 @@
+import gymnasium as gym
 import torch
 import torch.nn as nn
-import pfrl
 from reformer_pytorch import Reformer
 from reformer_pytorch.reformer_pytorch import Always, default, AbsolutePositionalEmbedding
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from torch.nn import Identity
 
 
-class ReformerKnots(nn.Module):
-    def __init__(self, dim, depth, max_seq_len, output_dim, heads=8, dim_head=64, bucket_size=64, n_hashes=4,
+class ReformerFeatureExtractor(BaseFeaturesExtractor):
+    def __init__(self, observation_space: gym.spaces.Box, depth, features_dim, heads=8, dim_head=64, n_hashes=4,
                  ff_chunks=100, attn_chunks=1, causal=False, weight_tie=False, lsh_dropout=0., ff_dropout=0., ff_mult=4,
                  ff_activation=None, ff_glu=False, layer_dropout=0.,
                  random_rotations_per_head=False, use_scale_norm=False, use_rezero=False, use_full_attn=False,
                  full_attn_thres=0, reverse_thres=0, num_mem_kv=0, one_value_head=False, emb_dim=None,
                  n_local_attn_heads=0, pooling='mean'):
-        super().__init__()
+
+        super(ReformerFeatureExtractor, self).__init__(observation_space, features_dim)
+
+        dim = features_dim
+        max_seq_len = observation_space.shape[0]
+
+        bucket_size=min(64, dim // 2 if dim > 4 else dim)
+
         emb_dim = default(emb_dim, dim)
         self.max_seq_len = max_seq_len
         self.dim = dim
@@ -36,7 +44,7 @@ class ReformerKnots(nn.Module):
 
         self.out = nn.Sequential(
             nn.Linear(dim, emb_dim) if emb_dim != dim else Identity(),
-            nn.Linear(emb_dim, output_dim)
+            nn.Linear(emb_dim, features_dim)
         )
 
     def forward(self, x, **kwargs):
@@ -83,71 +91,3 @@ class ReformerKnots(nn.Module):
 
         # Output prediction for the entire braid
         return self.out(x)  # [batch_size, output_dim]
-
-
-class PolicyWrapper(nn.Module):
-    def __init__(self, reformer_model, softmax_head):
-        super().__init__()
-        self.reformer = reformer_model
-        self.softmax_head = softmax_head
-
-    def forward(self, x):
-        # Process the braid input to get a single representation for the entire braid
-        action_logits = self.reformer(x)  # [batch_size, output_dim]
-
-        # Apply softmax head for action probabilities
-        action_probs = self.softmax_head(action_logits)
-        return action_probs
-
-
-def create_reformer_policy(obs_size: int, action_size: int, reformer_depth: int, reformer_heads: int, reformer_dim: int, pooling='mean') -> nn.Module:
-    """Create a policy network using Reformer architecture.
-
-    Args:
-        obs_size: Size of the observation (braid element count)
-        action_size: Number of possible actions
-        reformer_depth: Depth of the Reformer model
-        reformer_heads: Number of attention heads in the Reformer
-        reformer_dim: Dimension of the Reformer model
-        pooling: Method to aggregate sequence ('mean', 'max', 'first', or 'last')
-    """
-    reformer = ReformerKnots(
-        dim=reformer_dim,
-        depth=reformer_depth,
-        max_seq_len=obs_size,  # The maximum braid length
-        heads=reformer_heads,
-        bucket_size=min(64, obs_size // 2 if obs_size > 4 else obs_size),
-        n_hashes=4,
-        ff_chunks=10,
-        lsh_dropout=0.1,
-        causal=False,  # Non-causal since we want each element to attend to all other elements
-        n_local_attn_heads=2,
-        use_full_attn=(obs_size <= 64),  # Use full attention for small braids
-        output_dim=action_size,
-        pooling=pooling,  # How to pool sequence into a single representation
-    )
-    policy = PolicyWrapper(reformer, pfrl.policies.SoftmaxCategoricalHead())
-    # compiled_policy = torch.compile(policy, mode='max-autotune')
-    # return compiled_policy
-    return policy
-
-
-def create_reformer_vf(obs_size: int, reformer_depth: int, reformer_heads: int, reformer_dim: int, pooling='mean') -> nn.Module:
-    """Create a value function network using Reformer architecture."""
-    vf = ReformerKnots(
-        dim=reformer_dim,
-        depth=reformer_depth,
-        max_seq_len=obs_size,
-        heads=reformer_heads,
-        bucket_size=min(64, obs_size // 2 if obs_size > 4 else obs_size),
-        n_hashes=4,
-        ff_chunks=10,
-        lsh_dropout=0.1,
-        causal=False,  # Non-causal for braid self-attention
-        n_local_attn_heads=2,
-        use_full_attn=(obs_size <= 64),  # Use full attention for small braids
-        output_dim=1,
-        pooling=pooling,  # How to pool sequence into a single representation
-    )
-    #
-    return vf
