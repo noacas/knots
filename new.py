@@ -361,6 +361,7 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
         max_steps_in_generation=args.max_steps_in_generation,
         potential_based_reward=args.potential_based_reward,
         render_mode="human" if args.render else None,
+        device=args.device,
     )
     train_envs = DummyVectorEnv(
         [make_env(
@@ -369,7 +370,8 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
             args.max_steps,
             args.max_steps_in_generation,
             args.potential_based_reward,
-            None,  # Only render the first env if render is enabled
+            None,  # Only render the first env if render is enabled,
+            device=args.device,
         ) for i in range(args.training_num)]
     )
     test_envs = DummyVectorEnv(
@@ -379,7 +381,8 @@ def train_trpo(args: argparse.Namespace = get_args()) -> None:
             args.max_steps,
             args.max_steps_in_generation,
             args.potential_based_reward,
-            None,  # Don't render test environments
+            None,  # Don't render test environments,
+            device=args.device,
         ) for _ in range(args.test_num)]
     )
     args.state_shape = env.observation_space.shape or env.observation_space.n
