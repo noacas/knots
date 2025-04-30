@@ -17,5 +17,5 @@ pandas~=2.2.3
 gym~=0.26.2
 seaborn~=0.13.2
 gymnasium~=1.0.0
-stable-baselines3~=2.4.1
+sb3-contrib~=1.8.0
 rich~=14.0.0
