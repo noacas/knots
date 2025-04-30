@@ -138,8 +138,8 @@ class BraidEnvironment(gym.Env):
 
         # Check if done
         self.success = torch.equal(next_braid, self.target_braid)
-        if self.success:
-            logging.info("Found transformation! after %d steps", self.steps_taken)
+        # if self.success:
+        #     logging.info("Found transformation! after %d steps", self.steps_taken)
 
         terminated = self.success  # Episode ends successfully when braids match
         truncated = self.steps_taken >= self.max_steps  # Episode is truncated when max steps reached

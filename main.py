@@ -269,6 +269,7 @@ def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval
                  tensorboard_log=os_pth.join(args["outdir"], "tensorboard"),
                  gae_lambda=0.97,
                  gamma=0.95,
+                 n_steps=args["steps"]
                  )
     model.learn(total_timesteps=10_000, log_interval=4, progress_bar=True)
     model.save(outdir)
