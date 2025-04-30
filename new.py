@@ -308,6 +308,30 @@ def get_args():
     parser.add_argument('--watch', action='store_true',
                         help='Only watch the trained agent without training')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
+    parser.add_argument(
+        "--use-reformer",
+        action="store_true",
+        default=False,
+        help="Use Reformer networks instead of regular FFN",
+    )
+    parser.add_argument(
+        "--reformer-depth",
+        type=int,
+        default=2,
+        help="Depth of Reformer networks",
+    )
+    parser.add_argument(
+        "--reformer-heads",
+        type=int,
+        default=4,
+        help="Number of attention heads in Reformer",
+    )
+    parser.add_argument(
+        "--reformer-dim",
+        type=int,
+        default=64,
+        help="Hidden dimension for Reformer",
+    )
     return parser.parse_args()
 
 
