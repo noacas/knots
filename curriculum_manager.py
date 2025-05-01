@@ -230,5 +230,7 @@ class EpisodeSuccessHook(BaseCallback):
                     logging.info(
                         f"steps_in_generation={self.curriculum_manager.current_steps_in_generation}")
 
+        return True
+
     def _on_training_end(self) -> None:
         self.curriculum_manager.plot_curriculum_history()

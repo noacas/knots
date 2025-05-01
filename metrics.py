@@ -1,11 +1,110 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 from collections import defaultdict
-import os
 
 from stable_baselines3.common.callbacks import BaseCallback
 
 from braid_env import BraidEnvironment
+
+import numpy as np
+from stable_baselines3.common.callbacks import EvalCallback
+import os
+
+
+class PlottingEvalCallback(EvalCallback):
+    def __init__(self, env, plot_freq=10000, **kwargs):
+        """
+        Initialize the callback.
+
+        Args:
+            env: The environment used for evaluation
+            plot_freq: Frequency of plotting in timesteps
+            **kwargs: Additional arguments to be passed to EvalCallback
+        """
+        super().__init__(env, **kwargs)
+        self.plot_freq = plot_freq
+        self.results = {"timesteps": [], "mean_rewards": [], "std_rewards": []}
+
+    def _on_step(self) -> bool:
+        """
+        This method will be called by the model after each call to `env.step()`.
+
+        Returns:
+            If the callback returns False, training is aborted early.
+        """
+        # Call parent class method which evaluates the agent periodically and logs results
+        continue_training = super()._on_step()
+
+        if len(self.evaluations_timesteps) == 0:
+            return continue_training
+
+        self.results["timesteps"].append(self.num_timesteps)
+        episode_rewards = self.evaluations_results[-1]
+        self.results["mean_rewards"].append(np.mean(episode_rewards))
+        self.results["std_rewards"].append(np.std(episode_rewards))
+        episode_lengths = self.evaluations_length[-1]
+        self.results["mean_ep_length"].append(np.mean(episode_lengths))
+        self.results["std_ep_length"].append(np.std(episode_lengths))
+
+        # Check if we should plot based on our custom frequency
+        if self.num_timesteps % self.plot_freq == 0:
+            self.plot_results()
+
+        return continue_training
+
+    def plot_results(self):
+        """
+        Plot and save the current training results
+        """
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.results["timesteps"], self.results["mean_rewards"], label='Mean Reward')
+
+        # Add standard deviation bands
+        mean = np.array(self.results["mean_rewards"])
+        std = np.array(self.results["std_rewards"])
+        plt.fill_between(
+            self.results["timesteps"],
+            mean - std,
+            mean + std,
+            alpha=0.3,
+            label='Standard Deviation'
+        )
+
+        plt.xlabel('Timesteps')
+        plt.ylabel('Reward')
+        plt.title('Training Progress')
+        plt.legend()
+        plt.grid(True)
+
+        # Save the figure
+        os.makedirs('training_plots', exist_ok=True)
+        plt.savefig(f'training_plots/progress_{self.num_timesteps}_steps.png')
+        plt.close()
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.results["timesteps"], self.results["mean_ep_length"], label='Mean Episode Length')
+
+        # Add standard deviation bands
+        mean = np.array(self.results["mean_ep_length"])
+        std = np.array(self.results["std_ep_length"])
+        plt.fill_between(
+            self.results["timesteps"],
+            mean - std,
+            mean + std,
+            alpha=0.3,
+            label='Standard Deviation'
+        )
+
+        plt.xlabel('Timesteps')
+        plt.ylabel('Episode Length')
+        plt.title('Training Progress')
+        plt.legend()
+        plt.grid(True)
+
+        plt.savefig(f'training_plots/progress_{self.num_timesteps}_steps_episode_length.png')
+        plt.close()
+
+        print(f"Plot saved at timestep {self.num_timesteps}")
 
 
 # Create a metrics tracker class

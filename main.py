@@ -6,8 +6,7 @@ import os.path as os_pth
 from stable_baselines3.common.callbacks import EvalCallback
 
 from curriculum_manager import CurriculumManager, EpisodeSuccessHook
-from metrics import MetricsTracker, MetricsStepHook
-
+from metrics import MetricsTracker, MetricsStepHook, PlottingEvalCallback
 
 from tqdm.rich import tqdm
 
@@ -248,7 +247,7 @@ def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval
     if curriculum_manager is not None:
         callbacks.append(EpisodeSuccessHook(curriculum_manager, env))
 
-    callbacks.append(EvalCallback(
+    callbacks.append(PlottingEvalCallback(
         env,
         best_model_save_path=args["outdir"],
         log_path=args["outdir"],
@@ -275,12 +274,12 @@ def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval
                  policy_kwargs=policy_kwargs,
                  learning_rate=1e-3,
                  stats_window_size=100,
-                 tensorboard_log=os_pth.join(args["outdir"], "tensorboard"),
+                 tensorboard_log=os_pth.join(args["outdir"]),
                  gae_lambda=0.97,
                  gamma=0.95,
                  n_steps=args["steps"]
                  )
-    model.learn(total_timesteps=10_000, log_interval=4, progress_bar=True, callback=callbacks)
+    model.learn(total_timesteps=args["steps"], log_interval=4, callback=callbacks)
     model.save(outdir)
 
 
