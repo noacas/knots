@@ -214,6 +214,9 @@ class MetricsStepHook(BaseCallback):
             self.metrics_tracker.add_success_metric('success', 1, self.n_calls)
         elif self.env.done:
             self.metrics_tracker.add_success_metric('success', 0, self.n_calls)
+
+        if self.metrics_tracker.should_save(self.n_calls):
+            self.metrics_tracker.plot_learning_curves(self.n_calls)
         return True
 
     def _on_training_end(self) -> None:
