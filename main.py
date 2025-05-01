@@ -52,7 +52,7 @@ def parse_args():
     parser.add_argument(
         "--trpo-update-interval",
         type=int,
-        default=5000,
+        default=1280,
         help="Interval steps of TRPO iterations.",
     )
     parser.add_argument(
@@ -133,7 +133,7 @@ def parse_args():
 
 def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval=10000,
         eval_n_runs=100, demo=False, load="", load_pretrained=False,
-        trpo_update_interval=5000, log_level=logging.INFO,
+        trpo_update_interval=1280, log_level=logging.INFO,
         current_braid_length=20, target_braid_length=40,
         max_steps_for_braid=100, max_steps_in_generation=20,
         use_reformer=True, reformer_depth=2, reformer_heads=4, reformer_dim=64,
