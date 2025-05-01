@@ -3,8 +3,9 @@ import pandas as pd
 from collections import defaultdict
 import os
 
-from pfrl.experiments import EvaluationHook
-from pfrl.experiments.hooks import StepHook
+from stable_baselines3.common.callbacks import BaseCallback
+
+from braid_env import BraidEnvironment
 
 
 # Create a metrics tracker class
@@ -114,32 +115,20 @@ class MetricsTracker:
         plt.savefig(os.path.join(self.save_dir, 'success_after_moves.png'), dpi=300)
 
 
-class MetricsStepHook(StepHook):
-    def __init__(self, metrics_tracker):
-        self.metrics_tracker = metrics_tracker
+class MetricsStepHook(BaseCallback):
+
+    def __init__(self, metrics_tracker: MetricsTracker, env: BraidEnvironment):
         super(MetricsStepHook, self).__init__()
-
-    def __call__(self, env, agent, step):
-        if env.success:
-            self.metrics_tracker.add_success_metric('success_after_moves', env.steps_taken, step)
-            self.metrics_tracker.add_success_metric('success', 1, step)
-        elif env.done:
-            self.metrics_tracker.add_success_metric('success', 0, step)
-
-
-class MetricsEvaluationHook(EvaluationHook):
-    def __init__(self, metrics_tracker, outdir):
         self.metrics_tracker = metrics_tracker
-        self.outdir = outdir
-        self.support_train_agent = True
-        self.support_train_agent_batch = False
-        self.support_train_agent_async = False
-        super().__init__()
+        self.env = env
 
-    def __call__(self, env, agent, evaluator, step, eval_stats, agent_stats, env_stats):
-        # Add metrics from evaluation
-        self.metrics_tracker.add_metric('eval_mean_reward', eval_stats['mean'], step)
-        self.metrics_tracker.add_metric('eval_median_reward', eval_stats['median'], step)
+    def _on_step(self) -> bool:
+        if self.env.success:
+            self.metrics_tracker.add_success_metric('success_after_moves', self.env.steps_taken, self.n_calls)
+            self.metrics_tracker.add_success_metric('success', 1, self.n_calls)
+        elif self.env.done:
+            self.metrics_tracker.add_success_metric('success', 0, self.n_calls)
+        return True
 
-        if self.metrics_tracker.should_save(step):
-            self.metrics_tracker.plot_learning_curves(step)
+    def _on_training_end(self) -> None:
+        self.metrics_tracker.plot_learning_curves()

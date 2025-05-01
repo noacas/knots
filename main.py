@@ -1,10 +1,12 @@
-import torch
+import pfrl
 import argparse
 import logging
 import os.path as os_pth
-import json
+
+from stable_baselines3.common.callbacks import EvalCallback
+
 from curriculum_manager import CurriculumManager, EpisodeSuccessHook
-from metrics import MetricsTracker, MetricsEvaluationHook, MetricsStepHook
+from metrics import MetricsTracker, MetricsStepHook
 
 
 from tqdm.rich import tqdm
@@ -219,11 +221,8 @@ def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval
     # Set up logging
     logging.basicConfig(level=args["log_level"])
 
-    # args["outdir"] = pfrl.experiments.prepare_output_dir(args, args["outdir"])
-    # metrics_tracker = MetricsTracker(os_pth.join(args["outdir"], 'metrics'))
-    # evaluation_hook = MetricsEvaluationHook(metrics_tracker, args["outdir"])
-    # step_hook = MetricsStepHook(metrics_tracker)
-    # step_hooks = [step_hook]
+    args["outdir"] = pfrl.experiments.prepare_output_dir(args, args["outdir"])
+    metrics_tracker = MetricsTracker(os_pth.join(args["outdir"], 'metrics'))
 
     curriculum_manager = None
     max_steps_in_generation = args["max_steps_in_generation"]
@@ -235,7 +234,6 @@ def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval
             save_dir=args["outdir"],
         )
         max_steps_in_generation = args["initial_steps_in_generation"]
-        #step_hooks.append(EpisodeSuccessHook(curriculum_manager))
 
     env = BraidEnvironment(
         n_braids_max=args["current_braid_length"],
@@ -245,7 +243,18 @@ def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval
         potential_based_reward=args["potential_based_reward"],
         device=args["device"],
     )
-    timestep_limit = env.max_steps
+
+    callbacks = [MetricsStepHook(metrics_tracker, env)]
+    if curriculum_manager is not None:
+        callbacks.append(EpisodeSuccessHook(curriculum_manager, env))
+
+    callbacks.append(EvalCallback(
+        env,
+        best_model_save_path=args["outdir"],
+        log_path=args["outdir"],
+        eval_freq=args["eval_interval"],
+        n_eval_episodes=args["eval_n_runs"],
+    ))
 
     policy_kwargs = None
     if args["use_reformer"]:
@@ -271,12 +280,8 @@ def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval
                  gamma=0.95,
                  n_steps=args["steps"]
                  )
-    model.learn(total_timesteps=10_000, log_interval=4, progress_bar=True)
+    model.learn(total_timesteps=10_000, log_interval=4, progress_bar=True, callback=callbacks)
     model.save(outdir)
-
-    # metrics_tracker.plot_learning_curves()
-    # if curriculum_manager is not None:
-    #     curriculum_manager.plot_curriculum_history()
 
 
 def main():

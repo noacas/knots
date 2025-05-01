@@ -19,3 +19,4 @@ seaborn~=0.13.2
 gymnasium~=1.0.0
 sb3-contrib~=2.4.0
 rich~=14.0.0
+stable-baselines3~=2.4.1

@@ -144,7 +144,7 @@ class BraidEnvironment(gym.Env):
         terminated = self.success  # Episode ends successfully when braids match
         truncated = self.steps_taken >= self.max_steps  # Episode is truncated when max steps reached
 
-        info = {"success": self.success}
+        info = {"is_success": self.success}
 
         # Calculate reward based on similarity to target
         if should_punish:

@@ -5,9 +5,8 @@ import os
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 
-import pandas as pd
-import pfrl
 from matplotlib import pyplot as plt
+from stable_baselines3.common.callbacks import BaseCallback
 
 from braid_env import BraidEnvironment
 
@@ -211,78 +210,25 @@ class CurriculumManager:
         plt.close('all')
 
 
-class EpisodeSuccessHook(pfrl.experiments.StepHook):
+class EpisodeSuccessHook(BaseCallback):
     """Hook to track episode success for curriculum learning."""
 
-    def __init__(self, curriculum_manager, exp_buffer=None):
+    def __init__(self, curriculum_manager: CurriculumManager, env: BraidEnvironment, exp_buffer=None):
+        super(EpisodeSuccessHook, self).__init__()
         self.curriculum_manager = curriculum_manager
-        self.exp_buffer = exp_buffer
-        self.current_episode_data = {
-            'states': [],
-            'actions': [],
-            'rewards': [],
-            'next_states': [],
-            'dones': []
-        }
-        self.success_count = 0
-        self.episode_count = 0
+        self.env = env
 
-    def __call__(self, env: BraidEnvironment, agent, step):
+    def _on_step(self):
         # Check if an episode just ended
-        if env.done or env.success:
-            self.episode_count += 1
-
-            if env.success:
-                self.success_count += 1
-
+        if self.env.done or self.env.success:
             # Record episode result for curriculum learning
             if self.curriculum_manager:
-                difficulty_increased = self.curriculum_manager.record_episode_result(env.success)
+                difficulty_increased = self.curriculum_manager.record_episode_result(self.env.success)
                 if difficulty_increased:
                     # Reset the environment with new parameters
-                    self.curriculum_manager.reset_environment_for_curriculum(env)
+                    self.curriculum_manager.reset_environment_for_curriculum(self.env)
                     logging.info(
                         f"steps_in_generation={self.curriculum_manager.current_steps_in_generation}")
 
-            # Store episode in experience buffer if available
-            if self.exp_buffer and hasattr(self, 'current_episode_data'):
-                # Finalize current episode data
-                episode_data = {
-                    'states': np.array(self.current_episode_data['states']),
-                    'actions': np.array(self.current_episode_data['actions']),
-                    'rewards': np.array(self.current_episode_data['rewards']),
-                    'next_states': np.array(self.current_episode_data['next_states']),
-                    'dones': np.array(self.current_episode_data['dones'])
-                }
-
-                # Add to experience buffer
-                if len(episode_data['states']) > 0:
-                    self.exp_buffer.add_episode(episode_data, env.success)
-
-                # Reset for next episode
-                self.current_episode_data = {
-                    'states': [],
-                    'actions': [],
-                    'rewards': [],
-                    'next_states': [],
-                    'dones': []
-                }
-
-        # Record current step data for experience buffer
-        if self.exp_buffer and hasattr(agent, 'last_state') and hasattr(agent, 'last_action'):
-            if agent.last_state is not None and agent.last_action is not None:
-                # Get current state, action, reward
-                last_state = agent.last_state
-                last_action = agent.last_action
-
-                # Get reward and next state
-                reward = env.last_reward if hasattr(env, 'last_reward') else 0
-                next_state = env.last_obs if hasattr(env, 'last_obs') else last_state
-                done = env.episode_ended if hasattr(env, 'episode_ended') else False
-
-                # Add to current episode data
-                self.current_episode_data['states'].append(last_state)
-                self.current_episode_data['actions'].append(last_action)
-                self.current_episode_data['rewards'].append(reward)
-                self.current_episode_data['next_states'].append(next_state)
-                self.current_episode_data['dones'].append(done)
+    def _on_training_end(self) -> None:
+        self.curriculum_manager.plot_curriculum_history()
