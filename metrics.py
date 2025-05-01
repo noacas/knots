@@ -77,7 +77,7 @@ class PlottingEvalCallback(EvalCallback):
         plt.grid(True)
 
         # Save the figure
-        plt.savefig(f'progress_steps.png')
+        plt.savefig(os.path.join(self.log_path, 'progress_steps_reward.png'))
         plt.close()
 
         plt.figure(figsize=(10, 6))
@@ -100,7 +100,7 @@ class PlottingEvalCallback(EvalCallback):
         plt.legend()
         plt.grid(True)
 
-        plt.savefig(f'progress_steps_episode_length.png')
+        plt.savefig(os.path.join(self.log_path, 'progress_steps_length.png'))
         plt.close()
 
         print(f"Plot saved at timestep {self.num_timesteps}")
