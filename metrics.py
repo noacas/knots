@@ -23,7 +23,7 @@ class PlottingEvalCallback(EvalCallback):
         """
         super().__init__(env, **kwargs)
         self.plot_freq = plot_freq
-        self.results = {"timesteps": [], "mean_rewards": [], "std_rewards": []}
+        self.results = {"timesteps": [], "mean_rewards": [], "std_rewards": [], "mean_ep_length": [], "std_ep_length": []}
 
     def _on_step(self) -> bool:
         """
