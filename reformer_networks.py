@@ -20,7 +20,7 @@ class ReformerFeatureExtractor(BaseFeaturesExtractor):
         dim = features_dim
         max_seq_len = observation_space.shape[0]
 
-        bucket_size=min(64, dim // 2 if dim > 4 else dim)
+        bucket_size=min(64, max_seq_len // 2 if max_seq_len > 4 else max_seq_len)
 
         emb_dim = default(emb_dim, dim)
         self.max_seq_len = max_seq_len
