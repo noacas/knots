@@ -70,23 +70,11 @@ class MetricsTracker:
         return metrics_df
 
     def plot_learning_curves(self, step=0):
+        if len(self.success_metrics) == 0:
+            return
+
         self.last_save_step = step
-        metrics_df = self.save_metrics(self.metrics, 'metrics')
         success_metrics_df = self.save_metrics(self.success_metrics, 'success_metrics')
-
-        # Plot reward curves
-        plt.figure(figsize=(12, 8))
-        reward_cols = [col for col in metrics_df.columns if 'reward' in col.lower()]
-
-        for col in reward_cols:
-            plt.plot(metrics_df['step'], metrics_df[col], label=col)
-
-        plt.title('Learning Curves - Rewards')
-        plt.xlabel('Steps')
-        plt.ylabel('Reward')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.savefig(os.path.join(self.save_dir, 'reward_curves.png'), dpi=300)
 
         # Plot success curve
         success_rate_df = create_success_rate_df(success_metrics_df)
