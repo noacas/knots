@@ -24,7 +24,7 @@ class PlottingEvalCallback(EvalCallback):
         super().__init__(env, **kwargs)
         self.plot_freq = plot_freq
         self.save_dir = save_dir
-        self.results = {"timesteps": [], "mean_rewards": [], "std_rewards": [], "mean_ep_length": [], "std_ep_length": []}
+        self.results = defaultdict(list)
         os.makedirs(save_dir, exist_ok=True)
 
     def _on_step(self) -> bool:
@@ -47,6 +47,7 @@ class PlottingEvalCallback(EvalCallback):
         episode_lengths = self.evaluations_length[-1]
         self.results["mean_ep_length"].append(np.mean(episode_lengths))
         self.results["std_ep_length"].append(np.std(episode_lengths))
+        self.results["success_rate"].append(np.mean(self._is_success_buffer))
 
         # Check if we should plot based on our custom frequency
         if self.num_timesteps % self.plot_freq == 0:
@@ -101,8 +102,17 @@ class PlottingEvalCallback(EvalCallback):
         plt.title('Training Progress')
         plt.legend()
         plt.grid(True)
-
         plt.savefig(os.path.join(self.save_dir, 'progress_steps_length.png'))
+        plt.close()
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.results["timesteps"], self.results["success_rate"], label='Success Rate')
+        plt.xlabel('Timesteps')
+        plt.ylabel('Success Rate')
+        plt.title('Training Progress')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(os.path.join(self.save_dir, 'progress_steps_success_rate.png'))
         plt.close()
 
         print(f"Plot saved at timestep {self.num_timesteps}")
@@ -191,17 +201,6 @@ class MetricsTracker:
         plt.grid(True, alpha=0.3)
         plt.savefig(os.path.join(self.save_dir, 'success_curves.png'), dpi=300)
 
-        # plot success after how many moves
-        plt.figure(figsize=(12, 8))
-        success_after_moves = success_metrics_df[success_metrics_df['success_after_moves'].notnull()]
-        plt.plot(success_after_moves['step'], success_after_moves['success_after_moves'], label='success_after_moves')
-        plt.title('Learning Curves - Success After Moves')
-        plt.xlabel('Steps')
-        plt.ylabel('Success After Moves')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.savefig(os.path.join(self.save_dir, 'success_after_moves.png'), dpi=300)
-
 
 class MetricsStepHook(BaseCallback):
 
@@ -211,10 +210,12 @@ class MetricsStepHook(BaseCallback):
         self.env = env
 
     def _on_step(self) -> bool:
-        if self.env.success:
-            self.metrics_tracker.add_success_metric('success_after_moves', self.env.steps_taken, self.n_calls)
+        done = self.locals["dones"][0]
+        success = self.locals["infos"][0].get("is_success", False)
+        if success:
+            #self.metrics_tracker.add_success_metric('success_after_moves', self.env.steps_taken, self.n_calls)
             self.metrics_tracker.add_success_metric('success', 1, self.n_calls)
-        elif self.env.done:
+        elif done:
             self.metrics_tracker.add_success_metric('success', 0, self.n_calls)
 
         if self.metrics_tracker.should_save(self.n_calls):

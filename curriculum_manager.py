@@ -213,22 +213,22 @@ class CurriculumManager:
 class EpisodeSuccessHook(BaseCallback):
     """Hook to track episode success for curriculum learning."""
 
-    def __init__(self, curriculum_manager: CurriculumManager, env: BraidEnvironment, exp_buffer=None):
+    def __init__(self, curriculum_manager: CurriculumManager, env: BraidEnvironment):
         super(EpisodeSuccessHook, self).__init__()
         self.curriculum_manager = curriculum_manager
         self.env = env
 
     def _on_step(self):
         # Check if an episode just ended
-        if self.env.done or self.env.success:
-            # Record episode result for curriculum learning
-            if self.curriculum_manager:
-                difficulty_increased = self.curriculum_manager.record_episode_result(self.env.success)
-                if difficulty_increased:
-                    # Reset the environment with new parameters
-                    self.curriculum_manager.reset_environment_for_curriculum(self.env)
-                    logging.info(
-                        f"steps_in_generation={self.curriculum_manager.current_steps_in_generation}")
+        done = self.locals["dones"][0]
+        success = self.locals["infos"][0].get("is_success", False)
+        if done or success:
+            difficulty_increased = self.curriculum_manager.record_episode_result(success)
+            if difficulty_increased:
+                # Reset the environment with new parameters
+                self.curriculum_manager.reset_environment_for_curriculum(self.env)
+                logging.info(
+                    f"steps_in_generation={self.curriculum_manager.current_steps_in_generation}")
 
         return True
 
