@@ -12,7 +12,7 @@ import os
 
 
 class PlottingEvalCallback(EvalCallback):
-    def __init__(self, env, save_dir, plot_freq=10000, **kwargs):
+    def __init__(self, env, save_dir, plot_freq=1000, **kwargs):
         """
         Initialize the callback.
 
