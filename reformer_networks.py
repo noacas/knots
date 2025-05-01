@@ -1,5 +1,4 @@
 import gymnasium as gym
-import torch
 import torch.nn as nn
 from reformer_pytorch import Reformer
 from reformer_pytorch.reformer_pytorch import Always, default, AbsolutePositionalEmbedding

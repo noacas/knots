@@ -12,7 +12,7 @@ import os
 
 
 class PlottingEvalCallback(EvalCallback):
-    def __init__(self, env, plot_freq=10000, **kwargs):
+    def __init__(self, env, save_dir, plot_freq=10000, **kwargs):
         """
         Initialize the callback.
 
@@ -23,7 +23,9 @@ class PlottingEvalCallback(EvalCallback):
         """
         super().__init__(env, **kwargs)
         self.plot_freq = plot_freq
+        self.save_dir = save_dir
         self.results = {"timesteps": [], "mean_rewards": [], "std_rewards": [], "mean_ep_length": [], "std_ep_length": []}
+        os.makedirs(save_dir, exist_ok=True)
 
     def _on_step(self) -> bool:
         """
@@ -77,7 +79,7 @@ class PlottingEvalCallback(EvalCallback):
         plt.grid(True)
 
         # Save the figure
-        plt.savefig(os.path.join(self.log_path, 'progress_steps_reward.png'))
+        plt.savefig(os.path.join(self.save_dir, 'progress_steps_reward.png'))
         plt.close()
 
         plt.figure(figsize=(10, 6))
@@ -100,7 +102,7 @@ class PlottingEvalCallback(EvalCallback):
         plt.legend()
         plt.grid(True)
 
-        plt.savefig(os.path.join(self.log_path, 'progress_steps_length.png'))
+        plt.savefig(os.path.join(self.save_dir, 'progress_steps_length.png'))
         plt.close()
 
         print(f"Plot saved at timestep {self.num_timesteps}")

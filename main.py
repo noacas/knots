@@ -50,28 +50,10 @@ def parse_args():
         help="Number of episodes ran in an evaluation phase",
     )
     parser.add_argument(
-        "--demo",
-        action="store_true",
-        default=False,
-        help="Run demo episodes, not training",
-    )
-    parser.add_argument(
-        "--load",
-        type=str,
-        default="",
-        help=(
-            "Directory path to load a saved agent data from"
-            " if it is a non-empty string."
-        ),
-    )
-    parser.add_argument(
         "--trpo-update-interval",
         type=int,
         default=5000,
         help="Interval steps of TRPO iterations.",
-    )
-    parser.add_argument(
-        "--log-level", type=int, default=logging.INFO, help="Level of the root logger."
     )
     parser.add_argument(
         "--current-braid-length",
@@ -146,8 +128,6 @@ def parse_args():
         help="Use potential-based reward shaping",
     )
     args = parser.parse_args()
-
-    logging.basicConfig(level=args.log_level)
     return args
 
 
@@ -249,6 +229,7 @@ def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval
 
     callbacks.append(PlottingEvalCallback(
         env,
+        args["outdir"],
         best_model_save_path=args["outdir"],
         log_path=args["outdir"],
         eval_freq=args["eval_interval"],
