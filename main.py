@@ -241,11 +241,11 @@ def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval
         policy_kwargs = {
             "features_extractor_class": ReformerFeatureExtractor,
             "features_extractor_kwargs": {
-                "features_dim": 256,
+                "features_dim": args["reformer_dim"],
                 "depth": args["reformer_depth"],
                 "heads": args["reformer_heads"],
             },
-            "net_arch": dict(pi=[64, 32], vf=[64, 32]),
+            "net_arch": dict(pi=[64, 32], vf=[128, 64, 32]),
         }
 
     model = TRPO("MlpPolicy",
