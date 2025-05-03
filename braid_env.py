@@ -19,8 +19,9 @@ from subsequence_similarity import subsequence_similarity
 class BraidEnvironment(gym.Env):
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, n_braids_max=20, n_letters_max=40, max_steps=100,
-                 max_steps_in_generation=30, device="mps", render_mode=None, potential_based_reward=False):
+    def __init__(self, n_braids_max=5, n_letters_max=5, max_steps=100,
+                 max_steps_in_generation=30, device="mps",
+                 render_mode=None, potential_based_reward=False):
         self.max_steps = max_steps
         self.max_steps_in_generation = max_steps_in_generation
         self.n_braids_max = n_braids_max  # in action space

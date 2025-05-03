@@ -24,7 +24,6 @@ def parse_args():
     parser.add_argument(
         "--device", type=str, default="mps", help="mps, cuda, or cpu"
     )
-    parser.add_argument("--seed", type=int, default=0, help="Random seed [0, 2 ** 32)")
     parser.add_argument(
         "--outdir",
         type=str,
