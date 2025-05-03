@@ -131,27 +131,22 @@ def parse_args():
     return args
 
 
-def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval=10000,
-        eval_n_runs=100, demo=False, load="", load_pretrained=False,
-        trpo_update_interval=1280, log_level=logging.INFO,
+def run(device="cpu", outdir="results", steps=5 * 10 ** 6, eval_interval=10000,
+        eval_n_runs=100, trpo_update_interval=1280, log_level=logging.INFO,
         current_braid_length=20, target_braid_length=40,
         max_steps_for_braid=100, max_steps_in_generation=20,
         use_reformer=True, reformer_depth=2, reformer_heads=4, reformer_dim=64,
         use_curriculum=True, initial_steps_in_generation=2, success_threshold=0.5,
         potential_based_reward=False
         ):
-    """Run the training or demo process.
+    """Run the training
 
     Args:
-        seed (int): Random seed
         device (str): The device to use (mps, cuda, or cpu)
         outdir (str): Directory path to save output files
         steps (int): Total time steps for training
         eval_interval (int): Interval between evaluation phases in steps
         eval_n_runs (int): Number of episodes ran in an evaluation phase
-        demo (bool): Run demo episodes, not training
-        load (str): Directory path to load a saved agent data from
-        load_pretrained (bool): Whether to load a pretrained model
         trpo_update_interval (int): Interval steps of TRPO iterations
         log_level (int): Level of the root logger
         current_braid_length (int): Current braid length
@@ -169,15 +164,11 @@ def run(seed=0, device="mps", outdir="results", steps=5 * 10 ** 6, eval_interval
     """
     # Create a dictionary of arguments for compatibility with existing code
     args = {
-        "seed": seed,
         "device": device,
         "outdir": outdir,
         "steps": steps,
         "eval_interval": eval_interval,
         "eval_n_runs": eval_n_runs,
-        "demo": demo,
-        "load": load,
-        "load_pretrained": load_pretrained,
         "trpo_update_interval": trpo_update_interval,
         "log_level": log_level,
         "current_braid_length": current_braid_length,
